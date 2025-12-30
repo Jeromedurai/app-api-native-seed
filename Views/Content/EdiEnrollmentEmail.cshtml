@@ -1,0 +1,322 @@
+﻿@using static Tenant.Query.Model.Constant.Constant
+@model Tenant.Query.Model.AppNotification.EdiEnrollmentRequest
+<html lang="en">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title>EDI Integration Request</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+    <style type="text/css">
+        .tab {
+            margin-left: 14px;
+        }
+
+        .tab2 {
+            margin-left: 36px;
+        }
+
+        .button-primary:hover {
+            background-color: #002182 !important;
+        }
+
+        @@media (min-width: 768px) {
+            .button-primary-content {
+                padding: 8px 16px !important;
+            }
+        }
+
+        @@media (min-width: 768px) {
+            .toast-container {
+                width: 1000px;
+            }
+        }
+
+        .success-Badge {
+            font-family: Source-Sans-Pro, system-ui, -apple-system, 'Helvetica Neue', Arial !important;
+            font-weight: 600;
+            font-size: 10px;
+            margin: 1px 8px 1px 8px;
+            text-align: center;
+            background: #E8F7D4;
+            color: #006400;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .failed-Badge {
+            font-family: Source-Sans-Pro, system-ui, -apple-system, 'Helvetica Neue', Arial !important;
+            font-weight: 600;
+            font-size: 10px;
+            margin: 1px 8px 1px 8px;
+            text-align: center;
+            background: #FFE6E9;
+            color: #D40023;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .divider {
+            border-bottom: 1px solid #666666;
+        }
+
+        .text-error {
+            color: #D40023;
+        }
+
+        .cell-margin {
+            margin: 12px 12px 12px 12px;
+        }
+    </style>
+</head>
+<body style="margin:0; padding:0;">
+
+    <table bgcolor="#F2F2F2" width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+        <tbody>
+            <tr>
+                <td align="center" style="padding:24px 0 0 0">
+                    <table bgcolor="#FFFFFF" border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;" class="toast-container">
+                        <tbody>
+                            <tr style="margin:24px; padding: 24px;">
+                                <td align="center" style="padding:32px 0;">
+                                    <table width="140" height="36" border="0" cellspacing="0" cellpadding="0"
+                                           style="border-collapse:collapse;">
+                                        <tbody>
+                                            <tr>
+                                                <td width="140" height="36">
+                                                    <img width="140" height="36"
+                                                         src="https://cdn.toasttab.com/static/d2ccf73204a9f598b46289ae4f168db2a888e8be/images/ecomm/email/activation/header_logo_toast.png"
+                                                         alt="Toast Logo" />
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0 24px 24px 24px; font-weight: 400; font-size: 16px; line-height: 24px; letter-spacing: 0.3px; font-family: Source-Sans-Pro, system-ui, -apple-system, 'Helvetica Neue', Arial !important; color: #252525;">
+                                    Hi,
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0 24px 24px 24px; font-weight:400; font-size:16px; line-height:24px; letter-spacing:0.3px; font-family:Source-Sans-Pro, system-ui, -apple-system, 'Helvetica Neue', Arial !important; color:#252525;">
+                                    Received an EDI Integration Request from <b>@Model.FromAddress</b>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0 24px 6px 24px; font-weight: 400; font-size: 16px; line-height: 24px; letter-spacing: 0.3px; font-family: Source-Sans-Pro, system-ui, -apple-system, 'Helvetica Neue', Arial !important; color: #252525;">
+                                    <b>Customer Name&nbsp;</b> : @Model.TenantName
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0 24px 6px 24px; font-weight: 400; font-size: 16px; line-height: 24px; letter-spacing: 0.3px; font-family: Source-Sans-Pro, system-ui, -apple-system, 'Helvetica Neue', Arial !important; color: #252525;">
+                                    <b>Integration Type</b> : @Model.IntegrationType
+                                </td>
+                            </tr>
+                            @if (Model.SingleLocation != null && !(EdiTemplatesConstants.Ben_E_Keith == Model.TemplateId?.ToLower() || EdiTemplatesConstants.Cheney_Brothers == Model.TemplateId?.ToLower()))
+                            {
+                                <tr>
+                                    <td style="padding: 0 24px 12px 24px; font-weight: 400; font-size: 16px; line-height: 24px; letter-spacing: 0.3px; font-family: Source-Sans-Pro, system-ui, -apple-system, 'Helvetica Neue', Arial !important; color: #252525;">
+                                        <b>Location Details&nbsp;&nbsp;</b>:
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 0 24px 12px 24px;">
+                                        <table style="border-collapse: collapse; width: 100%;" class="table table-responsive table-striped table-bordered">
+                                            <thead>
+                                                <tr>
+                                                    <th style="text-align: left; padding: 8px; border: 1px solid black; background-color: rgba(205,229,240,.55); color: black;">
+                                                        Name
+                                                    </th>
+                                                    <th style="text-align: left; padding: 8px; border: 1px solid black; background-color: rgba(205,229,240,.55); color: black;">
+                                                        Address
+                                                    </th>
+                                                    @if (!string.IsNullOrEmpty(Model.SingleLocation.CustomerNumber))
+                                                    {
+                                                        <th style="text-align: left; padding: 8px; border: 1px solid black; background-color: rgba(205,229,240,.55); color: black;">
+                                                            Customer Number
+                                                        </th>
+                                                        @if (!string.IsNullOrEmpty(Model.SingleLocation.AccountManager))
+                                                        {
+                                                            <th style="text-align: left; padding: 8px; border: 1px solid black; background-color: rgba(205,229,240,.55); color: black;">
+                                                                @(EdiTemplatesConstants.US_Foods == Model.TemplateId?.ToLower() ? "US Foods Contact Name" : "Account Manager")
+                                                            </th>
+                                                        }
+
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(Model.SingleLocation.AccountNumber))
+                                                    {
+                                                        <th style="text-align: left; padding: 8px; border: 1px solid black; background-color: rgba(205,229,240,.55); color: black;">
+                                                            Account Number
+                                                        </th>
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(Model.SingleLocation.OperatingCompany))
+                                                    {
+                                                        <th style="text-align: left; padding: 8px; border: 1px solid black; background-color: rgba(205,229,240,.55); color: black;">
+                                                            @{
+                                                                var templateId = Model.TemplateId?.ToLower();
+                                                                var label = templateId switch
+                                                                {
+                                                                    EdiTemplatesConstants.Sysco => "Operating Company / Sysco Name",
+                                                                    EdiTemplatesConstants.PFG => "OPCO (Operating Company)",
+                                                                    EdiTemplatesConstants.ImperialDade => "Sales Rep Contact",
+                                                                    _ => "Operating Company"
+                                                                };
+                                                            }
+                                                            @label
+                                                        </th>
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(Model.SingleLocation.BusinessLegalName))
+                                                    {
+                                                        <th style="text-align: left; padding: 8px; border: 1px solid black; background-color: rgba(205,229,240,.55); color: black;">
+                                                            Business Legal Name
+                                                        </th>
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(Model.SingleLocation.BusinessAddress))
+                                                    {
+                                                        <th style="text-align: left; padding: 8px; border: 1px solid black; background-color: rgba(205,229,240,.55); color: black;">
+                                                            Business Address
+                                                        </th>
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(Model.SingleLocation.RestaurantContactPhoneNumber))
+                                                    {
+                                                        <th style="text-align: left; padding: 8px; border: 1px solid black; background-color: rgba(205,229,240,.55); color: black;">
+                                                            Restaurant Contact Phone Number
+                                                        </th>
+                                                    }
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    @if (!string.IsNullOrEmpty(Model.SingleLocation.CustomerNumber))
+                                                    {
+                                                        <td style="text-align: left; padding: 8px; border: 1px solid black;">
+                                                            @Model.SingleLocation.CustomerNumber
+                                                        </td>
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(Model.SingleLocation.AccountManager))
+                                                    {
+                                                        <td style="text-align: left; padding: 8px; border: 1px solid black;">
+                                                            @Model.SingleLocation.AccountManager
+                                                        </td>
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(Model.SingleLocation.AccountNumber))
+                                                    {
+                                                        <td style="text-align: left; padding: 8px; border: 1px solid black;">
+                                                            @Model.SingleLocation.AccountNumber
+                                                        </td>
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(Model.SingleLocation.OperatingCompany))
+                                                    {
+                                                        <td style="text-align: left; padding: 8px; border: 1px solid black;">
+                                                            @Model.SingleLocation.OperatingCompany
+                                                        </td>
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(Model.SingleLocation.BusinessLegalName))
+                                                    {
+                                                        <td style="text-align: left; padding: 8px; border: 1px solid black;">
+                                                            @Model.SingleLocation.BusinessLegalName
+                                                        </td>
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(Model.SingleLocation.BusinessAddress))
+                                                    {
+                                                        <td style="text-align: left; padding: 8px; border: 1px solid black;">
+                                                            @Model.SingleLocation.BusinessAddress
+                                                        </td>
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(Model.SingleLocation.RestaurantContactPhoneNumber))
+                                                    {
+                                                        <td style="text-align: left; padding: 8px; border: 1px solid black;">
+                                                            @Model.SingleLocation.RestaurantContactPhoneNumber
+                                                        </td>
+                                                    }
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </td>
+                                </tr>
+                            }
+                    </table>
+                </td>
+            </tr>
+
+            <tr>
+                <td align="center" style="padding:40px 24px 16px 24px;">
+                    <table width="164" height="18" border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+                        <tbody>
+                            <tr>
+                                <td width="164" height="18">
+                                    <img width="164" height="18"
+                                         src="https://cdn.toasttab.com/static/d2ccf73204a9f598b46289ae4f168db2a888e8be/images/ecomm/email/activation/powered_by_toast_h_orange.png"
+                                         alt="powered by Toast" />
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </td>
+            </tr>
+
+            <tr>
+                <td align="center"
+                    style="padding:0 24px 16px 24px; font-size:14px; line-height:20px; letter-spacing:0.5px; font-family:Source-Sans-Pro, system-ui, -apple-system, 'Helvetica Neue', Arial !important; color:#666666;">
+                    Got questions? Our 24/7 Customer Care team is here to help.<br />
+                    <a href="https://central.toasttab.com/s/" target="_blank" style="color:#2B4FB9; text-decoration:none;">
+                        Toast
+                        Central
+                    </a> | <a href="tel:617-682-0225" style="color:#2B4FB9; text-decoration:none;">(617) 682-0225</a>
+                </td>
+            </tr>
+
+            <tr>
+                <td align="center"
+                    style="padding:0 24px 24px 24px; font-size:14px; line-height:20px; letter-spacing:0.5px; font-family:Source-Sans-Pro, system-ui, -apple-system, 'Helvetica Neue', Arial !important; color:#666666;">
+                    <a href="https://refer.toasttab.com/login/" target="_blank" style="color:#2B4FB9; text-decoration:none;">
+                        Refer a Restaurant & Earn $500
+                    </a>
+                </td>
+            </tr>
+
+            <tr>
+                <td align="center" style="padding:0 24px 24px 24px;">
+                    <table align="center" border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+                        <tbody>
+                            <tr>
+                                <td width="24" style="padding: 0 12px;">
+                                    <a href="https://www.facebook.com/toasttab" style="text-decoration:none;" target="_blank">
+                                        <img src={{facebookLogo}}
+                                             alt="Toast Facebook" />
+                                    </a>
+                                </td>
+                                <td width="24" style="padding: 0 12px;">
+                                    <a href="https://twitter.com/toasttab" style="text-decoration:none;" target="_blank">
+                                        <img src={{twitterLogo}}
+                                             alt="Toast Twitter" />
+                                    </a>
+                                </td>
+                                <td width="24" style="padding: 0 12px;">
+                                    <a href="https://www.instagram.com/toasttab" style="text-decoration:none;" target="_blank">
+                                        <img src={{instagramLogo}}
+                                             alt="Toast Instagram" />
+                                    </a>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </td>
+            </tr>
+
+            <tr>
+                <td align="center"
+                    style="padding:0 24px 80px 24px; font-size:14px; line-height:20px; letter-spacing:0.5px; font-family:Source-Sans-Pro, system-ui, -apple-system, 'Helvetica Neue', Arial !important; color:#666666;">
+                    <a href="https://pos.toasttab.com/privacy/?utm_source=receipts&utm_medium=product" target="_blank"
+                       style="color:#2B4FB9; text-decoration:none;">Privacy Policy</a> | <a href="https://pos.toasttab.com/terms-of-service/?utm_source=receipts&utm_medium=product" target="_blank"
+                                                                                            style="color:#2B4FB9; text-decoration:none;">Terms of Service</a><br />
+                    &copy; Toast, Inc. 2020. All Rights Reserved.
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+</body>
+</html>

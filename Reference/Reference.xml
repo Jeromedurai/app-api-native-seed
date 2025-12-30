@@ -1,0 +1,27 @@
+POST /POST /api/1.0/products/tenants/{tenantId}/search-products
+Content-Type: application/json
+
+{
+  "page": 1,
+  "limit": 10,
+  "search": "apple",
+  "category": 1,
+  "inStock": true,
+  "sortBy": "price",
+  "sortOrder": "asc"
+}
+
+{
+  "page": 1,
+  "limit": 10,
+  "search": "apple",
+  "category": 1,
+  "minPrice": 10.00,
+  "maxPrice": 100.00,
+  "rating": 3,
+  "inStock": true,
+  "bestSeller": false,
+  "hasOffer": true,
+  "sortBy": "price",
+  "sortOrder": "asc"
+}
