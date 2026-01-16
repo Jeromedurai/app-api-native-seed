@@ -106,6 +106,7 @@
             public const string SP_SET_DEFAULT_ADDRESS = "[dbo].[SP_SET_DEFAULT_ADDRESS]";
             public const string SP_ADMIN_GET_ALL_ADDRESSES = "[dbo].[SP_ADMIN_GET_ALL_ADDRESSES]";
             public const string SP_VALIDATE_ADDRESS = "[dbo].[SP_VALIDATE_ADDRESS]";
+            public const string SP_SET_MAIN_PRODUCT_IMAGE = "[dbo].[SP_SET_MAIN_PRODUCT_IMAGE]";
         }
 
         public static class AddressType

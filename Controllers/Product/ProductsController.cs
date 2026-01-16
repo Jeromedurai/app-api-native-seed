@@ -1165,19 +1165,48 @@ namespace Tenant.Query.Controllers.Product
         {
             try
             {
+                if (payload == null)
+                {
+                    return BadRequest(new ApiResult { Exception = "Request payload is required" });
+                }
+
+                if (payload.UserId <= 0)
+                {
+                    return BadRequest(new ApiResult { Exception = "Valid User ID is required" });
+                }
+
+                if (payload.ProductId <= 0)
+                {
+                    return BadRequest(new ApiResult { Exception = "Valid Product ID is required" });
+                }
+
+                if (tenantId <= 0)
+                {
+                    return BadRequest(new ApiResult { Exception = "Valid Tenant ID is required" });
+                }
+
+                Logger?.LogInformation($"Controller: Removing product {payload.ProductId} from wishlist for user {payload.UserId}, tenant {tenantId}");
+
                 var result = productService.RemoveProductWishList(tenantId.ToString(), payload);
 
                 if (result <= 0)
+                {
+                    Logger?.LogWarning($"Controller: Product {payload.ProductId} not found in wishlist for user {payload.UserId}");
                     return NotFound(new ApiResult { Exception = "Product not found in wishlist" });
+                }
 
-                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
+                Logger?.LogInformation($"Controller: Successfully removed product {payload.ProductId} from wishlist. Return value: {result}");
+
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = new { removed = true, wishlistItemId = result } });
             }
             catch (ArgumentException ex)
             {
+                Logger?.LogWarning($"Controller: Invalid argument: {ex.Message}");
                 return BadRequest(new ApiResult { Exception = ex.Message });
             }
             catch (Exception ex)
             {
+                Logger?.LogError(ex, $"Controller: Error removing product from wishlist");
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
             }
         }
@@ -1236,6 +1265,28 @@ namespace Tenant.Query.Controllers.Product
 
                 // Use route tenantId as it's the source of truth
                 var wishlistData = await productService.GetUserWishlistItems(request.UserId, tenantId);
+
+                // Generate full URLs for product images in wishlist (same pattern as get-cart)
+                if (wishlistData?.Items != null && wishlistData.Items.Any())
+                {
+                    var httpRequest = HttpContext.Request;
+                    var baseUrl = $"{httpRequest.Scheme}://{httpRequest.Host}";
+                    
+                    foreach (var item in wishlistData.Items)
+                    {
+                        if (item.Product != null)
+                        {
+                            // Set image URLs if ImageId is available
+                            if (item.Product.ImageId.HasValue && item.Product.ImageId.Value > 0)
+                            {
+                                item.Product.ImageUrl = $"{baseUrl}/api/1.0/products/{item.Product.ImageId.Value}";
+                                item.Product.ThumbnailUrl = $"{baseUrl}/api/1.0/products/{item.Product.ImageId.Value}/thumbnail";
+                            }
+                            // If ImageId is null but ProductImage (Poster) exists, we can't construct URL without ImageId
+                            // The stored procedure should now return ImageId for products with images
+                        }
+                    }
+                }
 
                 Logger.LogInformation($"Controller: GetWishlistItems returned {wishlistData.Items.Count} items for user {request.UserId}");
 
@@ -2289,6 +2340,58 @@ namespace Tenant.Query.Controllers.Product
                 }
 
                 var result = await this.Service.UpdateProductImage(request);
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResult { Exception = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Set main product image
+        /// </summary>
+        /// <param name="productId">Product ID</param>
+        /// <param name="imageId">Image ID</param>
+        /// <returns>Updated image information</returns>
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status404NotFound, "Product or image not found", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [HttpPost]
+        [Route("products/{productId:long}/images/{imageId:long}/set-main")]
+        public async Task<IActionResult> SetMainProductImage([FromRoute] long productId, [FromRoute] long imageId)
+        {
+            try
+            {
+                if (productId <= 0)
+                {
+                    return BadRequest(new ApiResult { Exception = "Valid Product ID is required" });
+                }
+
+                if (imageId <= 0)
+                {
+                    return BadRequest(new ApiResult { Exception = "Valid Image ID is required" });
+                }
+
+                var request = new Model.Product.SetMainProductImageRequest
+                {
+                    ProductId = productId,
+                    ImageId = imageId,
+                    // Extract IP address and User-Agent from request headers
+                    IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    UserAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault()
+                };
+
+                var result = await this.Service.SetMainProductImage(request);
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
             }
             catch (KeyNotFoundException ex)

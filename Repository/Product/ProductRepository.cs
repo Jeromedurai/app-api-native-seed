@@ -116,13 +116,32 @@ namespace Tenant.Query.Repository.Product
         {
             try
             {
-                var cmd = _dataAccess.ExecuteNonQueryCMD(Model.Constant.Constant.StoredProcedures.SP_REMOVE_WISHLIST,
+                this.Logger?.LogInformation($"Repository: Removing product {removeWhishListPayload.ProductId} from wishlist for user {removeWhishListPayload.UserId}");
+                
+                // Execute stored procedure - returns result set with WishListId
+                var result = _dataAccess.ExecuteDataset(
+                    Model.Constant.Constant.StoredProcedures.SP_REMOVE_WISHLIST,
                     removeWhishListPayload.UserId,
-                    removeWhishListPayload.ProductId);
-                return Convert.ToInt64(cmd.Parameters["@RETURN_VALUE"].Value.ToString());
+                    removeWhishListPayload.ProductId
+                );
+                
+                // Get WishListId from result set
+                if (result != null && result.Tables.Count > 0 && result.Tables[0].Rows.Count > 0)
+                {
+                    var wishListId = result.Tables[0].Rows[0]["WishListId"] != DBNull.Value 
+                        ? Convert.ToInt64(result.Tables[0].Rows[0]["WishListId"]) 
+                        : 0;
+                    
+                    this.Logger?.LogInformation($"Repository: Successfully removed wishlist item. WishListId: {wishListId}");
+                    return wishListId;
+                }
+                
+                this.Logger?.LogWarning($"Repository: No result returned from stored procedure");
+                return 0;
             }
             catch (Exception ex)
             {
+                this.Logger?.LogError(ex, $"Repository: Error removing product {removeWhishListPayload.ProductId} from wishlist for user {removeWhishListPayload.UserId}");
                 throw;
             }
         }
@@ -1383,13 +1402,19 @@ namespace Tenant.Query.Repository.Product
                                 ProductDescription = row["ProductDescription"]?.ToString() ?? "",
                                 CurrentPrice = row["CurrentPrice"] != DBNull.Value ? Convert.ToDecimal(row["CurrentPrice"]) : 0,
                                 OriginalPrice = row["OriginalPrice"] != DBNull.Value ? Convert.ToDecimal(row["OriginalPrice"]) : (decimal?)null,
-                                InStock = row["InStock"] != DBNull.Value ? Convert.ToBoolean(row["InStock"]) : false,
                                 StockQuantity = row["ProductAvailableQuantity"] != DBNull.Value ? Convert.ToInt32(row["ProductAvailableQuantity"]) : 0,
+                                // Calculate InStock: Use stock_quantity as source of truth (if quantity > 0, then in stock)
+                                // This ensures correct stock status even if stored procedure InStock field is incorrect
+                                InStock = row["ProductAvailableQuantity"] != DBNull.Value && Convert.ToInt32(row["ProductAvailableQuantity"]) > 0,
                                 Rating = row["Rating"] != DBNull.Value ? Convert.ToDecimal(row["Rating"]) : 0,
                                 TotalReviews = row["TotalReviews"] != DBNull.Value ? Convert.ToInt32(row["TotalReviews"]) : 0,
                                 DiscountPercentage = row["DiscountPercentage"] != DBNull.Value ? Convert.ToDecimal(row["DiscountPercentage"]) : 0,
                                 OfferText = row["Offer"]?.ToString() ?? "",
                                 ProductImage = row["ProductImage"]?.ToString() ?? "",
+                                // Add ImageId mapping from stored procedure
+                                ImageId = row["ImageId"] != DBNull.Value ? Convert.ToInt64(row["ImageId"]) : (long?)null,
+                                ImageUrl = string.Empty, // Will be set in controller
+                                ThumbnailUrl = string.Empty, // Will be set in controller
                                 CategoryId = row["CategoryId"] != DBNull.Value ? Convert.ToInt64(row["CategoryId"]) : 0,
                                 CategoryName = row["CategoryName"]?.ToString() ?? "",
                                 IsActive = row["ProductActive"] != DBNull.Value ? Convert.ToBoolean(row["ProductActive"]) : false,
@@ -2321,6 +2346,61 @@ namespace Tenant.Query.Repository.Product
         }
 
         /// <summary>
+        /// Update order status with payment information
+        /// </summary>
+        /// <param name="request">Update order status with payment request</param>
+        /// <returns>Order status update confirmation</returns>
+        public async Task<Model.Order.UpdateOrderStatusWithPaymentResponse> UpdateOrderStatusWithPayment(Model.Order.UpdateOrderStatusWithPaymentRequest request)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Update order status with payment for order {request.OrderId?.ToString() ?? request.OrderNumber ?? "unknown"}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Model.Constant.Constant.StoredProcedures.SP_UPDATE_ORDER_STATUS_WITH_PAYMENT,
+                    request.OrderId ?? (object)DBNull.Value,
+                    request.OrderNumber ?? (object)DBNull.Value,
+                    request.Status ?? (object)DBNull.Value,
+                    request.PaymentStatus ?? (object)DBNull.Value,
+                    request.RazorpayPaymentId ?? (object)DBNull.Value,
+                    request.RazorpayOrderId ?? (object)DBNull.Value,
+                    request.RazorpaySignature ?? (object)DBNull.Value,
+                    request.Notes ?? (object)DBNull.Value,
+                    request.UpdatedBy ?? (object)DBNull.Value
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                {
+                    throw new KeyNotFoundException("Order not found or access denied");
+                }
+
+                // Process status update result
+                var statusRow = result.Tables[0].Rows[0];
+                var statusResponse = new Model.Order.UpdateOrderStatusWithPaymentResponse
+                {
+                    OrderId = Convert.ToInt64(statusRow["OrderId"]),
+                    OrderNumber = statusRow["OrderNumber"]?.ToString() ?? "",
+                    Status = statusRow["Status"]?.ToString() ?? "",
+                    PaymentStatus = statusRow["PaymentStatus"]?.ToString() ?? "",
+                    RazorpayPaymentId = statusRow["RazorpayPaymentId"]?.ToString() ?? "",
+                    RazorpayOrderId = statusRow["RazorpayOrderId"]?.ToString() ?? "",
+                    UpdatedAt = Convert.ToDateTime(statusRow["UpdatedAt"]),
+                    UpdatedBy = statusRow["UpdatedBy"] != DBNull.Value ? Convert.ToInt64(statusRow["UpdatedBy"]) : null,
+                    Message = statusRow["Message"]?.ToString() ?? "Order status updated successfully"
+                };
+
+                this.Logger.LogInformation($"Repository: Update order status with payment successful for order {request.OrderId?.ToString() ?? request.OrderNumber ?? "unknown"}");
+
+                return statusResponse;
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Update order status with payment error for order {request.OrderId?.ToString() ?? request.OrderNumber ?? "unknown"}: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
         /// Get all users (Admin only)
         /// </summary>
         /// <param name="request">Get all users request</param>
@@ -2926,6 +3006,82 @@ namespace Tenant.Query.Repository.Product
                 else if (ex.Message.Contains("Image not found or does not belong to this product"))
                 {
                     throw new KeyNotFoundException("Image not found or does not belong to this product");
+                }
+                else if (ex.Message.Contains("User not found or inactive"))
+                {
+                    throw new ArgumentException("User not found or inactive");
+                }
+                
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Set main product image
+        /// </summary>
+        /// <param name="request">Set main product image request</param>
+        /// <returns>Updated image information</returns>
+        public async Task<Model.Product.SetMainProductImageResponse> SetMainProductImage(Model.Product.SetMainProductImageRequest request)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Set main product image for product {request.ProductId}, image {request.ImageId}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Model.Constant.Constant.StoredProcedures.SP_SET_MAIN_PRODUCT_IMAGE,
+                    request.ProductId,
+                    request.ImageId,
+                    request.UserId ?? (object)DBNull.Value,
+                    request.TenantId ?? (object)DBNull.Value,
+                    request.IpAddress ?? (object)DBNull.Value,
+                    request.UserAgent ?? (object)DBNull.Value
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                {
+                    throw new KeyNotFoundException("Product or image not found");
+                }
+
+                // Process updated image
+                var imageRow = result.Tables[0].Rows[0];
+                var updatedImage = new Model.Product.ProductImageInfo
+                {
+                    ImageId = Convert.ToInt64(imageRow["ImageId"]),
+                    ProductId = Convert.ToInt64(imageRow["ProductId"]),
+                    Poster = imageRow["Poster"]?.ToString() ?? "",
+                    Main = Convert.ToBoolean(imageRow["Main"]),
+                    Active = Convert.ToBoolean(imageRow["Active"]),
+                    OrderBy = Convert.ToInt32(imageRow["OrderBy"]),
+                    Created = Convert.ToDateTime(imageRow["Created"]),
+                    Modified = Convert.ToDateTime(imageRow["Modified"]),
+                    ImageName = imageRow["ImageName"]?.ToString() ?? "",
+                    ContentType = imageRow["ContentType"]?.ToString() ?? "",
+                    FileSize = Convert.ToInt64(imageRow["FileSize"])
+                };
+
+                var response = new Model.Product.SetMainProductImageResponse
+                {
+                    Image = updatedImage,
+                    Message = imageRow["Message"]?.ToString() ?? "Image set as main successfully",
+                    Success = true
+                };
+
+                this.Logger.LogInformation($"Repository: Set main product image successful for product {request.ProductId}, image {request.ImageId}");
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Set main product image error for product {request.ProductId}, image {request.ImageId}: {ex.Message}");
+                
+                // Check for specific error messages from stored procedure
+                if (ex.Message.Contains("Product not found or inactive"))
+                {
+                    throw new KeyNotFoundException("Product not found or inactive");
+                }
+                else if (ex.Message.Contains("Image not found") || ex.Message.Contains("does not belong to this product"))
+                {
+                    throw new KeyNotFoundException("Image not found, inactive, or does not belong to this product");
                 }
                 else if (ex.Message.Contains("User not found or inactive"))
                 {

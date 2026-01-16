@@ -120,6 +120,16 @@ namespace Tenant.Query.Model.WishList
         [JsonProperty("product_image")]
         public string ProductImage { get; set; }
 
+        // Add image properties similar to CartProductImage
+        [JsonProperty("image_id")]
+        public long? ImageId { get; set; }
+
+        [JsonProperty("image_url")]
+        public string ImageUrl { get; set; }
+
+        [JsonProperty("thumbnail_url")]
+        public string ThumbnailUrl { get; set; }
+
         [JsonProperty("category_id")]
         public long CategoryId { get; set; }
 

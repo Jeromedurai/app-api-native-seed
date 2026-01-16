@@ -154,6 +154,63 @@ namespace Tenant.Query.Model.Product
     }
 
     /// <summary>
+    /// Model for set main product image request
+    /// </summary>
+    public class SetMainProductImageRequest
+    {
+        /// <summary>
+        /// Product ID (will be set from route parameter)
+        /// </summary>
+        public long ProductId { get; set; }
+
+        /// <summary>
+        /// Image ID (will be set from route parameter)
+        /// </summary>
+        public long ImageId { get; set; }
+
+        /// <summary>
+        /// User ID (optional, for activity logging)
+        /// </summary>
+        public long? UserId { get; set; }
+
+        /// <summary>
+        /// Tenant ID (optional)
+        /// </summary>
+        public long? TenantId { get; set; }
+
+        /// <summary>
+        /// IP address (will be extracted from request)
+        /// </summary>
+        public string IpAddress { get; set; }
+
+        /// <summary>
+        /// User agent (will be extracted from request)
+        /// </summary>
+        public string UserAgent { get; set; }
+    }
+
+    /// <summary>
+    /// Model for set main product image response
+    /// </summary>
+    public class SetMainProductImageResponse
+    {
+        /// <summary>
+        /// Updated image information
+        /// </summary>
+        public ProductImageInfo Image { get; set; }
+
+        /// <summary>
+        /// Success message
+        /// </summary>
+        public string Message { get; set; }
+
+        /// <summary>
+        /// Whether the operation was successful
+        /// </summary>
+        public bool Success { get; set; }
+    }
+
+    /// <summary>
     /// Model for delete product image request
     /// </summary>
     public class DeleteProductImageRequest

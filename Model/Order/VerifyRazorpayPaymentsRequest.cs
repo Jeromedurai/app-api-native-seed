@@ -100,5 +100,15 @@ namespace Tenant.Query.Model.Order
         /// Payment amount (in paise)
         /// </summary>
         public long? Amount { get; set; }
+
+        /// <summary>
+        /// Updated payment status (e.g., "paid", "pending", "failed")
+        /// </summary>
+        public string PaymentStatus { get; set; }
+
+        /// <summary>
+        /// Updated order status (e.g., "confirmed", "pending", "processing")
+        /// </summary>
+        public string OrderStatus { get; set; }
     }
 }

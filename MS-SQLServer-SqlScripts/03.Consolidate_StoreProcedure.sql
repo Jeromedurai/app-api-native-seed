@@ -283,6 +283,207 @@ IF OBJECT_ID(N'[dbo].[SP_UPDATE_ORDER_STATUS_WITH_PAYMENT]', N'P') IS NOT NULL
 DROP PROCEDURE [dbo].[SP_UPDATE_ORDER_STATUS_WITH_PAYMENT];
 GO
 
+IF OBJECT_ID(N'[dbo].[SP_SET_MAIN_PRODUCT_IMAGE]', N'P') IS NOT NULL
+DROP PROCEDURE [dbo].[SP_SET_MAIN_PRODUCT_IMAGE];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_DELETE_PRODUCT_IMAGE]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_DELETE_PRODUCT_IMAGE];
+GO
+
+CREATE PROCEDURE [dbo].[SP_DELETE_PRODUCT_IMAGE]
+				@ProductId BIGINT,
+				@ImageId BIGINT,
+				@UserId BIGINT = NULL,
+				@TenantId BIGINT = NULL,
+				@HardDelete BIT = 0,
+				@IpAddress NVARCHAR(45) = NULL,
+				@UserAgent NVARCHAR(500) = NULL
+AS
+BEGIN
+	SET NOCOUNT ON;
+	
+	BEGIN TRY
+		BEGIN TRANSACTION;
+		
+		DECLARE @CurrentTime DATETIME = GETUTCDATE();
+		DECLARE @ImageName NVARCHAR(255);
+		DECLARE @IsMain BIT;
+		DECLARE @IsActive BIT;
+		
+		-- Validate product exists and is active
+		IF NOT EXISTS (SELECT 1 FROM Products WHERE ProductId = @ProductId AND Active = 1)
+		BEGIN
+			RAISERROR('Product not found or inactive.', 16, 1);
+			RETURN;
+		END
+		
+		-- Validate image exists and belongs to product
+		SELECT 
+			@ImageName = ImageName,
+			@IsMain = Main,
+			@IsActive = Active
+		FROM ProductImages 
+		WHERE ImageId = @ImageId AND ProductId = @ProductId;
+		
+		IF @ImageName IS NULL
+		BEGIN
+			RAISERROR('Image not found or does not belong to this product.', 16, 1);
+			RETURN;
+		END
+		
+		-- Check if image is already deleted (soft delete)
+		IF @IsActive = 0 AND @HardDelete = 0
+		BEGIN
+			RAISERROR('Image is already deleted.', 16, 1);
+			RETURN;
+		END
+		
+		-- Validate user if provided
+		IF @UserId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		BEGIN
+			RAISERROR('User not found or inactive.', 16, 1);
+			RETURN;
+		END
+		
+		-- Check if this is the last active image for the product
+		DECLARE @ActiveImageCount INT;
+		SELECT @ActiveImageCount = COUNT(*)
+		FROM ProductImages 
+		WHERE ProductId = @ProductId AND Active = 1 AND ImageId != @ImageId;
+		
+		-- Prevent deletion of the last image if it's the main image
+		IF @ActiveImageCount = 0 AND @IsMain = 1
+		BEGIN
+			RAISERROR('Cannot delete the last active main image. Please add another image first.', 16, 1);
+			RETURN;
+		END
+		
+		-- Perform deletion
+		IF @HardDelete = 1
+		BEGIN
+			-- Hard delete: Remove from database completely
+			DELETE FROM ProductImages
+			WHERE ImageId = @ImageId AND ProductId = @ProductId;
+		END
+		ELSE
+		BEGIN
+			-- Soft delete: Mark as inactive
+			UPDATE ProductImages
+			SET 
+				Active = 0,
+				Main = 0, -- Remove main status if it was main
+				Modified = @CurrentTime,
+				ModifiedBy = @UserId,
+				DeletedAt = @CurrentTime,
+				DeletedBy = @UserId
+			WHERE ImageId = @ImageId AND ProductId = @ProductId;
+		END
+		
+		-- If deleted image was main, set another active image as main
+		IF @IsMain = 1 AND @ActiveImageCount > 0
+		BEGIN
+			UPDATE ProductImages
+			SET 
+				Main = 1,
+				Modified = @CurrentTime
+			WHERE ProductId = @ProductId 
+				AND Active = 1 
+				AND ImageId = (
+					SELECT TOP 1 ImageId 
+					FROM ProductImages 
+					WHERE ProductId = @ProductId AND Active = 1 
+					ORDER BY OrderBy, ImageId
+				);
+		END
+		
+		-- Update product modified date
+		UPDATE Products
+		SET Modified = @CurrentTime
+		WHERE ProductId = @ProductId;
+		
+		-- Log the image deletion activity
+		IF @UserId IS NOT NULL
+		BEGIN
+			INSERT INTO UserActivityLog (
+				UserId,
+				ActivityType,
+				ActivityDescription,
+				IpAddress,
+				UserAgent,
+				CreatedAt
+			) VALUES (
+				@UserId,
+				CASE WHEN @HardDelete = 1 THEN 'PRODUCT_IMAGE_HARD_DELETED' ELSE 'PRODUCT_IMAGE_SOFT_DELETED' END,
+				CASE WHEN @HardDelete = 1 THEN 'Permanently deleted' ELSE 'Soft deleted' END + 
+				' image ' + @ImageName + ' from product ID: ' + CAST(@ProductId AS VARCHAR(20)),
+				@IpAddress,
+				@UserAgent,
+				@CurrentTime
+			);
+		END
+		
+		-- Return deletion confirmation
+		SELECT 
+			@ImageId AS ImageId,
+			@ProductId AS ProductId,
+			@ImageName AS ImageName,
+			@IsMain AS WasMain,
+			@HardDelete AS HardDeleted,
+			@CurrentTime AS DeletedAt,
+			@UserId AS DeletedBy,
+			CASE WHEN @HardDelete = 1 THEN 'Image permanently deleted' ELSE 'Image soft deleted' END AS Message,
+			@ActiveImageCount AS RemainingActiveImages;
+		
+		-- Return current active images for the product
+		SELECT 
+			pi.ImageId,
+			pi.ProductId,
+			pi.Poster,
+			pi.Main,
+			pi.Active,
+			pi.OrderBy,
+			pi.CreatedAt AS Created,
+			pi.Modified
+		FROM ProductImages pi
+		WHERE pi.ProductId = @ProductId AND pi.Active = 1
+		ORDER BY pi.OrderBy, pi.ImageId;
+		
+		COMMIT TRANSACTION;
+		
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+			
+		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+		DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+		DECLARE @ErrorState INT = ERROR_STATE();
+		
+		-- Log the failed image deletion
+		IF @UserId IS NOT NULL
+		BEGIN
+			INSERT INTO UserActivityLog (
+				UserId,
+				ActivityType,
+				ActivityDescription,
+				IpAddress,
+				UserAgent,
+				CreatedAt
+			) VALUES (
+				@UserId,
+				'PRODUCT_IMAGE_DELETE_FAILED',
+				'Failed to delete image ID: ' + CAST(@ImageId AS VARCHAR(20)) + ' from product ID: ' + CAST(@ProductId AS VARCHAR(20)) + ' - ' + @ErrorMessage,
+				@IpAddress,
+				@UserAgent,
+				GETUTCDATE()
+			);
+		END
+		
+		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+	END CATCH
+END
+GO
 CREATE PROCEDURE [dbo].[SP_UPDATE_CATEGORY]
 	@CategoryId BIGINT,
 	@TenantId BIGINT,
@@ -2981,7 +3182,7 @@ BEGIN
 			p.[Return] AS ReturnPolicy,
 			p.Created AS ProductCreated,
 			p.Modified AS ProductModified,
-			p.InStock,
+			-- p.InStock removed - using calculated InStock field below that checks both InStock flag and quantity
 			p.BestSeller,
 			p.DeliveryDate,
 			p.Offer,
@@ -2998,34 +3199,46 @@ BEGIN
 			cat.Icon AS CategoryIcon,
 			cat.HasSubMenu AS CategorySubMenu,
 			
-			-- Product Images (main image)
-			pi.ImageId,
-			pi.Poster AS ProductImage,
-			pi.Main AS IsMainImage,
-			pi.Active AS ImageActive,
-			pi.OrderBy AS ImageOrderBy,
-			
-			-- Calculated Fields
-			CASE 
-				WHEN p.Quantity > 0 THEN 1 
-				ELSE 0 
-			END AS InStock,
-			CASE 
-				WHEN p.Offer IS NOT NULL AND p.Offer != '' THEN 1 
-				ELSE 0 
-			END AS OnSale,
-			ISNULL(p.Rating, 0) AS Rating,
-			0 AS TotalReviews, -- Can be calculated from ProductReviews table if needed
-			CASE 
-				WHEN p.Offer IS NOT NULL AND p.Offer != '' AND ISNUMERIC(p.Offer) = 1 
-				THEN CAST(p.Offer AS DECIMAL(5,2))
-				ELSE 0 
-			END AS DiscountPercentage
-			
-		FROM ProductWishList w
-		INNER JOIN Products p ON w.ProductId = p.ProductId
-		LEFT JOIN Categories cat ON p.Category = cat.CategoryId
-		LEFT JOIN ProductImages pi ON p.ProductId = pi.ProductId AND pi.Main = 1 AND pi.Active = 1
+		-- Product Images (main image, or first active image if no main image)
+		pi.ImageId,
+		pi.Poster AS ProductImage,
+		pi.Main AS IsMainImage,
+		pi.Active AS ImageActive,
+		pi.OrderBy AS ImageOrderBy,
+		
+		-- Calculated Fields - In stock if quantity > 0 (quantity is the source of truth)
+		CASE 
+			WHEN p.Quantity > 0 THEN 1 
+			ELSE 0 
+		END AS InStock,
+		CASE 
+			WHEN p.Offer IS NOT NULL AND p.Offer != '' THEN 1 
+			ELSE 0 
+		END AS OnSale,
+		ISNULL(p.Rating, 0) AS Rating,
+		0 AS TotalReviews, -- Can be calculated from ProductReviews table if needed
+		CASE 
+			WHEN p.Offer IS NOT NULL AND p.Offer != '' AND ISNUMERIC(p.Offer) = 1 
+			THEN CAST(p.Offer AS DECIMAL(5,2))
+			ELSE 0 
+		END AS DiscountPercentage
+		
+	FROM ProductWishList w
+	INNER JOIN Products p ON w.ProductId = p.ProductId
+	LEFT JOIN Categories cat ON p.Category = cat.CategoryId
+	LEFT JOIN (
+		-- Get main image if exists, otherwise get first active image
+		SELECT 
+			pi1.ProductId,
+			pi1.ImageId,
+			pi1.Poster,
+			pi1.Main,
+			pi1.Active,
+			pi1.OrderBy,
+			ROW_NUMBER() OVER (PARTITION BY pi1.ProductId ORDER BY CASE WHEN pi1.Main = 1 THEN 0 ELSE 1 END, pi1.OrderBy) AS rn
+		FROM ProductImages pi1
+		WHERE pi1.Active = 1
+	) pi ON p.ProductId = pi.ProductId AND pi.rn = 1
 		WHERE w.UserId = @UserId 
 			AND w.Active = 1
 			AND p.Active = 1
@@ -3080,20 +3293,21 @@ BEGIN
 			RETURN;
 		END
 		
-		-- Check if wishlist item already exists
+		-- Check if wishlist item already exists (regardless of Active status to handle unique constraint)
 		SELECT @WishListId = WishListId
 		FROM ProductWishList
 		WHERE UserId = @UserId 
-			AND ProductId = @ProductId 
-			AND Active = 1;
+			AND ProductId = @ProductId;
 		
 		IF @WishListId IS NOT NULL
 		BEGIN
-			-- Update existing wishlist item
+			-- Update existing wishlist item (reactivate if it was soft-deleted)
 			UPDATE ProductWishList
 			SET 
+				Active = 1, -- Reactivate if it was soft-deleted
 				UpdatedAt = @CurrentTime,
-				Priority = 3 -- Default priority
+				Priority = 3, -- Default priority
+				TenantId = @TenantId -- Update tenant ID in case it changed
 			WHERE WishListId = @WishListId;
 		END
 		ELSE
@@ -3165,11 +3379,11 @@ GO
 -- =============================================
 -- SP_REMOVE_WISHLIST
 -- Remove product from wishlist (soft delete by setting Active = 0)
+-- Returns result set with WishListId instead of OUTPUT parameter
 -- =============================================
 CREATE PROCEDURE [dbo].[SP_REMOVE_WISHLIST]
 	@UserId BIGINT,
-	@ProductId BIGINT,
-	@RETURN_VALUE BIGINT OUTPUT
+	@ProductId BIGINT
 AS
 BEGIN
 	SET NOCOUNT ON;
@@ -3189,7 +3403,7 @@ BEGIN
 		IF @WishListId IS NULL
 		BEGIN
 			-- Return 0 if item not found
-			SET @RETURN_VALUE = 0;
+			SELECT 0 AS WishListId;
 			RETURN;
 		END
 		
@@ -3202,15 +3416,16 @@ BEGIN
 		
 		SET @RowsAffected = @@ROWCOUNT;
 		
-		-- Return the number of rows affected (should be 1 if successful)
-		SET @RETURN_VALUE = @RowsAffected;
+		-- Return the WishListId (should be > 0 if successful)
+		SELECT @WishListId AS WishListId;
 	END TRY
 	BEGIN CATCH
 		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
 		DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
 		DECLARE @ErrorState INT = ERROR_STATE();
 		
-		SET @RETURN_VALUE = 0;
+		-- Return 0 on error
+		SELECT 0 AS WishListId;
 		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
 	END CATCH
 END
@@ -5958,6 +6173,116 @@ BEGIN
         IF @@TRANCOUNT > 0
             ROLLBACK TRANSACTION;
         THROW;
+    END CATCH
+END
+GO
+
+CREATE OR ALTER PROCEDURE [dbo].[SP_SET_MAIN_PRODUCT_IMAGE]
+    @ProductId BIGINT,
+    @ImageId BIGINT,
+    @UserId BIGINT = NULL,
+    @TenantId BIGINT = NULL,
+    @IpAddress NVARCHAR(45) = NULL,
+    @UserAgent NVARCHAR(500) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        DECLARE @CurrentTime DATETIME = GETUTCDATE();
+        DECLARE @ImageName NVARCHAR(255);
+        
+        -- Validate product exists and is active
+        IF NOT EXISTS (SELECT 1 FROM Products WHERE ProductId = @ProductId AND Active = 1)
+        BEGIN
+            RAISERROR('Product not found or inactive.', 16, 1);
+            RETURN;
+        END
+        
+        -- Validate image exists and belongs to product
+        SELECT @ImageName = ImageName
+        FROM ProductImages 
+        WHERE ImageId = @ImageId AND ProductId = @ProductId AND Active = 1;
+        
+        IF @ImageName IS NULL
+        BEGIN
+            RAISERROR('Image not found, inactive, or does not belong to this product.', 16, 1);
+            RETURN;
+        END
+        
+        -- Validate user if provided
+        IF @UserId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+        BEGIN
+            RAISERROR('User not found or inactive.', 16, 1);
+            RETURN;
+        END
+        
+        -- Unset all other main images for this product
+        UPDATE ProductImages
+        SET 
+            Main = 0,
+            Modified = @CurrentTime
+        WHERE ProductId = @ProductId AND ImageId != @ImageId AND Active = 1;
+        
+        -- Set this image as main
+        UPDATE ProductImages
+        SET 
+            Main = 1,
+            Modified = @CurrentTime
+        WHERE ImageId = @ImageId AND ProductId = @ProductId;
+        
+        -- Update product modified date
+        UPDATE Products
+        SET Modified = @CurrentTime
+        WHERE ProductId = @ProductId;
+        
+        -- Log activity if user provided
+        IF @UserId IS NOT NULL
+        BEGIN
+            INSERT INTO UserActivityLog (
+                UserId,
+                ActivityType,
+                ActivityDescription,
+                IpAddress,
+                UserAgent,
+                CreatedAt
+            ) VALUES (
+                @UserId,
+                'PRODUCT_IMAGE_SET_MAIN',
+                'Set image ' + CAST(@ImageId AS VARCHAR(20)) + ' as main for product ' + CAST(@ProductId AS VARCHAR(20)),
+                @IpAddress,
+                @UserAgent,
+                @CurrentTime
+            );
+        END
+        
+        -- Return updated image information
+        SELECT 
+            pi.ImageId,
+            pi.ProductId,
+            pi.Poster,
+            pi.Main,
+            pi.Active,
+            pi.OrderBy,
+            pi.CreatedAt AS Created,
+            pi.Modified,
+            pi.ImageName,
+            pi.ContentType,
+            pi.FileSize,
+            'Image set as main successfully' AS Message
+        FROM ProductImages pi
+        WHERE pi.ImageId = @ImageId AND pi.ProductId = @ProductId;
+        
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+        
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        RAISERROR(@ErrorMessage, 16, 1);
     END CATCH
 END
 GO

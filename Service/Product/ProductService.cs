@@ -576,11 +576,41 @@ namespace Tenant.Query.Service.Product
         /// <returns></returns>
         private static T GetColumnValue<T>(DataRow row, string columnName, T defaultValue = default)
         {
-            if (row.Table.Columns.Contains(columnName) && row[columnName] != DBNull.Value)
+            try
             {
-                return (T)Convert.ChangeType(row[columnName], typeof(T));
+                if (!row.Table.Columns.Contains(columnName))
+                {
+                    return defaultValue;
+                }
+
+                var value = row[columnName];
+                
+                if (value == null || value == DBNull.Value)
+                {
+                    return defaultValue;
+                }
+
+                // Handle nullable types
+                var underlyingType = Nullable.GetUnderlyingType(typeof(T));
+                if (underlyingType != null)
+                {
+                    // It's a nullable type, convert to underlying type
+                    if (value == DBNull.Value || value == null)
+                    {
+                        return defaultValue;
+                    }
+                    var convertedValue = Convert.ChangeType(value, underlyingType);
+                    return (T)convertedValue;
+                }
+
+                // Non-nullable type
+                return (T)Convert.ChangeType(value, typeof(T));
             }
-            return defaultValue;
+            catch (Exception)
+            {
+                // If conversion fails, return default value
+                return defaultValue;
+            }
         }
 
         /// <summary>
@@ -2214,6 +2244,44 @@ namespace Tenant.Query.Service.Product
         }
 
         /// <summary>
+        /// Set main product image
+        /// </summary>
+        /// <param name="request">Set main product image request</param>
+        /// <returns>Updated image information</returns>
+        public async Task<Model.Product.SetMainProductImageResponse> SetMainProductImage(Model.Product.SetMainProductImageRequest request)
+        {
+            try
+            {
+                this._loggerFactory.CreateLogger<ProductService>().LogInformation($"Set main product image attempt for product: {request.ProductId}, image: {request.ImageId}");
+
+                if (request == null)
+                    throw new ArgumentNullException(nameof(request));
+
+                if (request.ProductId <= 0)
+                    throw new ArgumentException("Valid Product ID is required");
+
+                if (request.ImageId <= 0)
+                    throw new ArgumentException("Valid Image ID is required");
+
+                var imageResponse = await this.productRepository.SetMainProductImage(request);
+
+                this._loggerFactory.CreateLogger<ProductService>().LogInformation($"Set main product image successful for product: {request.ProductId}, image: {request.ImageId}");
+
+                return imageResponse;
+            }
+            catch (KeyNotFoundException)
+            {
+                this._loggerFactory.CreateLogger<ProductService>().LogWarning($"Set main product image failed - image not found: {request?.ImageId} for product: {request?.ProductId}");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                this._loggerFactory.CreateLogger<ProductService>().LogError($"Set main product image error for product {request?.ProductId}, image {request?.ImageId}: {ex.Message}");
+                throw new Exception("An error occurred while setting the main product image.", ex);
+            }
+        }
+
+        /// <summary>
         /// Delete product image
         /// </summary>
         /// <param name="request">Delete product image request</param>
@@ -2444,6 +2512,42 @@ namespace Tenant.Query.Service.Product
 
                 this._loggerFactory.CreateLogger<ProductService>().LogInformation($"Razorpay payments verified successfully. PaymentId: {request.PaymentId}");
 
+                // Update order status to "paid" after successful verification
+                string paymentStatus = "paid";
+                string orderStatus = "confirmed";
+                
+                if (request.InternalOrderId.HasValue || !string.IsNullOrEmpty(request.InternalOrderNumber))
+                {
+                    try
+                    {
+                        var updateRequest = new Model.Order.UpdateOrderStatusWithPaymentRequest
+                        {
+                            OrderId = request.InternalOrderId,
+                            OrderNumber = request.InternalOrderNumber,
+                            Status = orderStatus,
+                            PaymentStatus = paymentStatus,
+                            RazorpayPaymentId = request.PaymentId,
+                            RazorpayOrderId = request.OrderId,
+                            RazorpaySignature = request.Signature,
+                            Notes = "Payment verified successfully via Razorpay"
+                        };
+                        
+                        var updateResult = await this.productRepository.UpdateOrderStatusWithPayment(updateRequest);
+                        
+                        if (updateResult != null)
+                        {
+                            paymentStatus = updateResult.PaymentStatus ?? paymentStatus;
+                            orderStatus = updateResult.Status ?? orderStatus;
+                            this._loggerFactory.CreateLogger<ProductService>().LogInformation($"Order status updated successfully. OrderId: {updateResult.OrderId}, PaymentStatus: {paymentStatus}, OrderStatus: {orderStatus}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // Log but don't fail verification if status update fails
+                        this._loggerFactory.CreateLogger<ProductService>().LogWarning($"Payment verified but failed to update order status: {ex.Message}");
+                    }
+                }
+
                 return new Model.Order.VerifyRazorpayPaymentsResponse
                 {
                     Success = true,
@@ -2454,7 +2558,9 @@ namespace Tenant.Query.Service.Product
                     OrderCreated = true,
                     OrderNumber = request.InternalOrderNumber,
                     OrderId = request.InternalOrderId,
-                    Amount = request.Amount
+                    Amount = request.Amount,
+                    PaymentStatus = paymentStatus,
+                    OrderStatus = orderStatus
                 };
             }
             catch (Exception ex)
