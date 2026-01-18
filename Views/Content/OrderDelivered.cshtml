@@ -1,0 +1,111 @@
+@model dynamic
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Delivered</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #28a745;
+        }
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            color: #28a745;
+            margin-bottom: 10px;
+        }
+        .delivered-badge {
+            display: inline-block;
+            background-color: #28a745;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .delivery-info {
+            background-color: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #28a745;
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #888;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">xtraCHEF</div>
+            <div class="delivered-badge">✓ Order Delivered</div>
+            <h2>Your Order Has Been Delivered!</h2>
+        </div>
+
+        <div class="message">
+            <p>Hello @(Model.CustomerName ?? "Customer"),</p>
+            <p>We're happy to inform you that your order has been successfully delivered.</p>
+        </div>
+
+        <div class="delivery-info">
+            <h3 style="margin-top: 0; color: #28a745;">Delivery Confirmation</h3>
+            <p><strong>Order Number:</strong> @Model.OrderNumber</p>
+            <p><strong>Delivered On:</strong> @Model.DeliveryDate</p>
+            @if (!string.IsNullOrEmpty(Model.TrackingNumber))
+            {
+                <p><strong>Tracking Number:</strong> @Model.TrackingNumber</p>
+            }
+        </div>
+
+        <div class="message">
+            <p>We hope you're satisfied with your purchase! If you have any questions or concerns, please don't hesitate to contact us.</p>
+            <p style="text-align: center;">
+                <a href="@Model.OrderTrackingUrl" class="button">View Order Details</a>
+            </p>
+            <p style="text-align: center; margin-top: 20px;">
+                <a href="@Model.ReviewUrl" class="button" style="background-color: #ffc107; color: #333;">Leave a Review</a>
+            </p>
+        </div>
+
+        <div class="footer">
+            <p>Thank you for shopping with us!</p>
+            <p>&copy; @DateTime.Now.Year xtraCHEF Inc. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

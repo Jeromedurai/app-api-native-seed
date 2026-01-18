@@ -147,6 +147,16 @@ namespace Tenant.Query
 
             // Initialize scoped instance for shipping
             services.AddScoped(typeof(Service.Shipping.ShippingService), typeof(Service.Shipping.ShippingService));
+
+            // Initialize scoped instance for email
+            services.AddScoped(typeof(Service.Email.EmailService), typeof(Service.Email.EmailService));
+            
+            // Initialize scoped instance for email controller
+            services.AddScoped(typeof(Controllers.Email.EmailController), typeof(Controllers.Email.EmailController));
+            
+            // Initialize scoped instance for invoice
+            services.AddScoped(typeof(Service.Invoice.InvoiceService), typeof(Service.Invoice.InvoiceService));
+            
             services.AddScoped(typeof(Repository.Shipping.ShippingRepository), typeof(Repository.Shipping.ShippingRepository));
 
             // Initialize scoped instance for address

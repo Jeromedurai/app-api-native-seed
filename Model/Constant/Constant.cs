@@ -76,6 +76,7 @@
             public const string SP_CREATE_RAZORPAY_ORDER = "[dbo].[SP_CREATE_RAZORPAY_ORDER]";
             public const string SP_VERIFY_RAZORPAY_PAYMENT = "[dbo].[SP_VERIFY_RAZORPAY_PAYMENT]";
             public const string SP_UPDATE_ORDER_STATUS_WITH_PAYMENT = "[dbo].[SP_UPDATE_ORDER_STATUS_WITH_PAYMENT]";
+            public const string SP_GET_PAYMENT_STATUS_BY_RAZORPAY_ORDER_ID = "[dbo].[SP_GET_PAYMENT_STATUS_BY_RAZORPAY_ORDER_ID]";
             public const string SP_CREATE_COUPON = "[dbo].[SP_CREATE_COUPON]";
             public const string SP_GET_COUPONS = "[dbo].[SP_GET_COUPONS]";
             public const string SP_GET_COUPON_BY_ID = "[dbo].[SP_GET_COUPON_BY_ID]";
@@ -107,6 +108,9 @@
             public const string SP_ADMIN_GET_ALL_ADDRESSES = "[dbo].[SP_ADMIN_GET_ALL_ADDRESSES]";
             public const string SP_VALIDATE_ADDRESS = "[dbo].[SP_VALIDATE_ADDRESS]";
             public const string SP_SET_MAIN_PRODUCT_IMAGE = "[dbo].[SP_SET_MAIN_PRODUCT_IMAGE]";
+            public const string SP_REQUEST_PASSWORD_RESET = "[dbo].[SP_REQUEST_PASSWORD_RESET]";
+            public const string SP_VERIFY_RESET_OTP = "[dbo].[SP_VERIFY_RESET_OTP]";
+            public const string SP_RESEND_RESET_OTP = "[dbo].[SP_RESEND_RESET_OTP]";
         }
 
         public static class AddressType

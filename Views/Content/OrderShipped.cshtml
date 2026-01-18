@@ -1,0 +1,136 @@
+@model dynamic
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Shipped</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #007bff;
+        }
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            color: #007bff;
+            margin-bottom: 10px;
+        }
+        .shipped-badge {
+            display: inline-block;
+            background-color: #007bff;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .tracking-info {
+            background-color: #e7f3ff;
+            border-left: 4px solid #007bff;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .tracking-info h3 {
+            margin-top: 0;
+            color: #007bff;
+        }
+        .tracking-number {
+            font-size: 20px;
+            font-weight: bold;
+            color: #007bff;
+            margin: 10px 0;
+            padding: 10px;
+            background-color: white;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #007bff;
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #888;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">xtraCHEF</div>
+            <div class="shipped-badge">🚚 Order Shipped</div>
+            <h2>Your Order is on the Way!</h2>
+        </div>
+
+        <div class="message">
+            <p>Hello @(Model.CustomerName ?? "Customer"),</p>
+            <p>Great news! Your order has been shipped and is on its way to you.</p>
+        </div>
+
+        <div class="tracking-info">
+            <h3>Tracking Information</h3>
+            <p><strong>Order Number:</strong> @Model.OrderNumber</p>
+            @if (!string.IsNullOrEmpty(Model.TrackingNumber))
+            {
+                <p><strong>Tracking Number:</strong></p>
+                <div class="tracking-number">@Model.TrackingNumber</div>
+            }
+            @if (!string.IsNullOrEmpty(Model.Carrier))
+            {
+                <p><strong>Carrier:</strong> @Model.Carrier</p>
+            }
+            @if (Model.EstimatedDelivery != null)
+            {
+                <p><strong>Estimated Delivery:</strong> @Model.EstimatedDelivery</p>
+            }
+            @if (!string.IsNullOrEmpty(Model.TrackingUrl))
+            {
+                <p style="text-align: center; margin-top: 15px;">
+                    <a href="@Model.TrackingUrl" class="button">Track Your Package</a>
+                </p>
+            }
+        </div>
+
+        <div class="message">
+            <p>You can track your package using the tracking number above. We'll notify you once your order is delivered.</p>
+            <p style="text-align: center;">
+                <a href="@Model.OrderTrackingUrl" class="button">View Order Details</a>
+            </p>
+        </div>
+
+        <div class="footer">
+            <p>If you have any questions about your shipment, please contact our support team.</p>
+            <p>&copy; @DateTime.Now.Year xtraCHEF Inc. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

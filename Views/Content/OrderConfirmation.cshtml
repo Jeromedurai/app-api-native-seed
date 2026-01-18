@@ -1,0 +1,231 @@
+@model dynamic
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Confirmation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #28a745;
+        }
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            color: #28a745;
+            margin-bottom: 10px;
+        }
+        .success-badge {
+            display: inline-block;
+            background-color: #28a745;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .order-info {
+            background-color: #f8f9fa;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .order-info h3 {
+            margin-top: 0;
+            color: #28a745;
+        }
+        .order-details {
+            margin: 20px 0;
+        }
+        .order-details table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        .order-details th {
+            background-color: #f8f9fa;
+            padding: 10px;
+            text-align: left;
+            border-bottom: 2px solid #dee2e6;
+            font-weight: bold;
+        }
+        .order-details td {
+            padding: 10px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .order-details tr:last-child td {
+            border-bottom: none;
+        }
+        .total-section {
+            background-color: #f8f9fa;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+        }
+        .total-final {
+            font-size: 18px;
+            font-weight: bold;
+            color: #28a745;
+            border-top: 2px solid #dee2e6;
+            padding-top: 10px;
+            margin-top: 10px;
+        }
+        .address-section {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #28a745;
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #888;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">xtraCHEF</div>
+            <div class="success-badge">✓ Order Confirmed</div>
+            <h2>Thank You for Your Order!</h2>
+        </div>
+
+        <div class="message">
+            <p>Hello @(Model.CustomerName ?? "Customer"),</p>
+            <p>We're excited to confirm that your order has been successfully placed and payment has been received.</p>
+        </div>
+
+        <div class="order-info">
+            <h3>Order Information</h3>
+            <p><strong>Order Number:</strong> @Model.OrderNumber</p>
+            <p><strong>Order Date:</strong> @Model.OrderDate</p>
+            <p><strong>Payment Status:</strong> <span style="color: #28a745; font-weight: bold;">@Model.PaymentStatus</span></p>
+            <p><strong>Order Status:</strong> @Model.OrderStatus</p>
+        </div>
+
+        @if (Model.Items != null && Model.Items.Count > 0)
+        {
+            <div class="order-details">
+                <h3>Order Items</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Quantity</th>
+                            <th>Price</th>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in Model.Items)
+                        {
+                            <tr>
+                                <td>
+                                    <strong>@item.ProductName</strong>
+                                    @if (!string.IsNullOrEmpty(item.ProductCode))
+                                    {
+                                        <br><small style="color: #666;">SKU: @item.ProductCode</small>
+                                    }
+                                </td>
+                                <td>@item.Quantity</td>
+                                <td>₹@item.Price.ToString("F2")</td>
+                                <td>₹@item.Total.ToString("F2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        <div class="total-section">
+            <div class="total-row">
+                <span>Subtotal:</span>
+                <span>₹@Model.Subtotal.ToString("F2")</span>
+            </div>
+            @if (Model.ShippingAmount > 0)
+            {
+                <div class="total-row">
+                    <span>Shipping:</span>
+                    <span>₹@Model.ShippingAmount.ToString("F2")</span>
+                </div>
+            }
+            @if (Model.TaxAmount > 0)
+            {
+                <div class="total-row">
+                    <span>Tax:</span>
+                    <span>₹@Model.TaxAmount.ToString("F2")</span>
+                </div>
+            }
+            @if (Model.DiscountAmount > 0)
+            {
+                <div class="total-row" style="color: #dc3545;">
+                    <span>Discount:</span>
+                    <span>-₹@Model.DiscountAmount.ToString("F2")</span>
+                </div>
+            }
+            <div class="total-row total-final">
+                <span>Total Amount:</span>
+                <span>₹@Model.TotalAmount.ToString("F2")</span>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Model.ShippingAddress))
+        {
+            <div class="address-section">
+                <h3>Shipping Address</h3>
+                <p>@Html.Raw(Model.ShippingAddress.Replace("\n", "<br>"))</p>
+            </div>
+        }
+
+        <div class="message">
+            <p>We'll send you another email once your order ships. You can track your order status anytime from your account.</p>
+            <p style="text-align: center;">
+                <a href="@Model.OrderTrackingUrl" class="button">View Order Details</a>
+            </p>
+        </div>
+
+        <div class="footer">
+            <p>If you have any questions about your order, please contact our support team.</p>
+            <p>&copy; @DateTime.Now.Year xtraCHEF Inc. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

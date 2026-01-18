@@ -24,6 +24,7 @@ IF OBJECT_ID('RazorpayOrders', 'U') IS NOT NULL DROP TABLE RazorpayOrders;
 IF OBJECT_ID('RazorpayPayments', 'U') IS NOT NULL DROP TABLE RazorpayPayments;
 IF OBJECT_ID('ShippingRates', 'U') IS NOT NULL DROP TABLE ShippingRates;
 IF OBJECT_ID('States', 'U') IS NOT NULL DROP TABLE States;
+IF OBJECT_ID('PasswordResetOTPs', 'U') IS NOT NULL DROP TABLE PasswordResetOTPs;
 
 -- IF OBJECT_ID('ProductCategories', 'U') IS NOT NULL DROP TABLE ProductCategories;
 -- IF OBJECT_ID('UserPreferences', 'U') IS NOT NULL DROP TABLE UserPreferences;
@@ -710,6 +711,22 @@ BEGIN
 
     PRINT 'Table CouponUsage created successfully';
 END
+GO
+
+CREATE TABLE [dbo].[PasswordResetOTPs] (
+    OtpId BIGINT IDENTITY(1,1) PRIMARY KEY,
+    UserId BIGINT NOT NULL,
+    Email NVARCHAR(255) NOT NULL,
+    OTP NVARCHAR(6) NOT NULL,
+    ExpiresAt DATETIME2(7) NOT NULL,
+    Used BIT DEFAULT 0 NOT NULL,
+    Attempts INT DEFAULT 0 NOT NULL,
+    CreatedAt DATETIME2(7) DEFAULT GETUTCDATE() NOT NULL,
+    UsedAt DATETIME2(7) NULL,
+    IpAddress NVARCHAR(45) NULL,
+    UserAgent NVARCHAR(500) NULL,
+    CONSTRAINT FK_PasswordResetOTPs_Users FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE
+);
 GO
 
 -- -- Order Analytics Table

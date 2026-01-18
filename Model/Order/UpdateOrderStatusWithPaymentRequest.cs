@@ -66,9 +66,9 @@ namespace Tenant.Query.Model.Order
     public class UpdateOrderStatusWithPaymentResponse
     {
         /// <summary>
-        /// Updated order ID
+        /// Updated order ID (nullable - can be null if order doesn't exist yet)
         /// </summary>
-        public long OrderId { get; set; }
+        public long? OrderId { get; set; }
 
         /// <summary>
         /// Order number

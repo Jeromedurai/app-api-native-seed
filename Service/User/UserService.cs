@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -14,12 +14,14 @@ namespace Tenant.Query.Service.User
         #region Variables
 
         private Repository.User.UserRepository UserRepository;
+        private Service.Email.EmailService EmailService;
 
         #endregion
 
-        public UserService(Repository.User.UserRepository userRepository, ILoggerFactory loggerFactory, TnAudit xcAudit, TnValidation xcValidation) : base(xcAudit, xcValidation)
+        public UserService(Repository.User.UserRepository userRepository, Service.Email.EmailService emailService, ILoggerFactory loggerFactory, TnAudit xcAudit, TnValidation xcValidation) : base(xcAudit, xcValidation)
         {
             this.UserRepository = userRepository;
+            this.EmailService = emailService;
             this.UserRepository.Logger = loggerFactory.CreateLogger<Repository.User.UserRepository>();
         }
 
@@ -479,6 +481,153 @@ namespace Tenant.Query.Service.User
                 throw;
             }
         }
+        /// <summary>
+        /// Request password reset OTP
+        /// </summary>
+        public async Task<Model.User.ForgotPasswordResponse> RequestPasswordReset(Model.User.ForgotPasswordRequest request, string ipAddress = null, string userAgent = null)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Service: Password reset requested for email: {request.Email}");
+
+                if (string.IsNullOrWhiteSpace(request.Email))
+                {
+                    throw new ArgumentException("Email is required");
+                }
+
+                var response = await this.UserRepository.RequestPasswordReset(request, ipAddress, userAgent);
+
+                // Send email with OTP
+                if (response != null && response.UserId > 0)
+                {
+                    try
+                    {
+                        var emailSent = await this.EmailService.SendPasswordResetOtpEmail(response);
+                        if (emailSent)
+                        {
+                            this.Logger.LogInformation($"Service: Password reset OTP email sent successfully to {request.Email}");
+                        }
+                        else
+                        {
+                            this.Logger.LogWarning($"Service: Password reset OTP email failed to send to {request.Email}. OTP: {response.OTP}");
+                        }
+                    }
+                    catch (System.Exception emailEx)
+                    {
+                        // Don't fail the request if email fails - log and continue
+                        this.Logger.LogError($"Service: Error sending password reset email to {request.Email}: {emailEx.Message}");
+                        this.Logger.LogInformation($"Service: OTP for {request.Email}: {response.OTP} (Email sending failed)");
+                    }
+                }
+
+                this.Logger.LogInformation($"Service: Password reset OTP generated for email: {request.Email}");
+
+                return response;
+            }
+            catch (System.Exception ex)
+            {
+                this.Logger.LogError($"Service: Error requesting password reset for {request.Email}: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Verify OTP and reset password
+        /// </summary>
+        public async Task<Model.User.ResetPasswordWithOtpResponse> ResetPasswordWithOtp(Model.User.ResetPasswordWithOtpRequest request, string ipAddress = null, string userAgent = null)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Service: Password reset with OTP for email: {request.Email}");
+
+                if (string.IsNullOrWhiteSpace(request.Email))
+                {
+                    throw new ArgumentException("Email is required");
+                }
+
+                if (string.IsNullOrWhiteSpace(request.OTP))
+                {
+                    throw new ArgumentException("OTP is required");
+                }
+
+                if (string.IsNullOrWhiteSpace(request.NewPassword))
+                {
+                    throw new ArgumentException("New password is required");
+                }
+
+                if (request.NewPassword != request.ConfirmPassword)
+                {
+                    throw new ArgumentException("Passwords do not match");
+                }
+
+                if (request.NewPassword.Length < 6)
+                {
+                    throw new ArgumentException("Password must be at least 6 characters");
+                }
+
+                var response = await this.UserRepository.ResetPasswordWithOtp(request, ipAddress, userAgent);
+
+                this.Logger.LogInformation($"Service: Password reset successful for user: {response.UserId}");
+
+                return response;
+            }
+            catch (System.Exception ex)
+            {
+                this.Logger.LogError($"Service: Error resetting password for {request.Email}: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Resend password reset OTP
+        /// </summary>
+        public async Task<Model.User.ForgotPasswordResponse> ResendResetOtp(Model.User.ForgotPasswordRequest request, string ipAddress = null, string userAgent = null)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Service: Resending password reset OTP for email: {request.Email}");
+
+                if (string.IsNullOrWhiteSpace(request.Email))
+                {
+                    throw new ArgumentException("Email is required");
+                }
+
+                var response = await this.UserRepository.ResendResetOtp(request, ipAddress, userAgent);
+
+                // Send email with OTP
+                if (response != null && response.UserId > 0)
+                {
+                    try
+                    {
+                        var emailSent = await this.EmailService.SendPasswordResetOtpEmail(response);
+                        if (emailSent)
+                        {
+                            this.Logger.LogInformation($"Service: Password reset OTP email resent successfully to {request.Email}");
+                        }
+                        else
+                        {
+                            this.Logger.LogWarning($"Service: Password reset OTP email failed to resend to {request.Email}. OTP: {response.OTP}");
+                        }
+                    }
+                    catch (System.Exception emailEx)
+                    {
+                        // Don't fail the request if email fails - log and continue
+                        this.Logger.LogError($"Service: Error resending password reset email to {request.Email}: {emailEx.Message}");
+                        this.Logger.LogInformation($"Service: OTP for {request.Email}: {response.OTP} (Email sending failed)");
+                    }
+                }
+
+                this.Logger.LogInformation($"Service: Password reset OTP resent for email: {request.Email}");
+
+                return response;
+            }
+            catch (System.Exception ex)
+            {
+                this.Logger.LogError($"Service: Error resending password reset OTP for {request.Email}: {ex.Message}");
+                throw;
+            }
+        }
+
         #endregion
     }
 }

@@ -31,6 +31,22 @@ IF OBJECT_ID(N'[dbo].[SP_RESET_PASSWORD]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_RESET_PASSWORD];
 GO
 
+IF OBJECT_ID(N'[dbo].[SP_REQUEST_PASSWORD_RESET]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_REQUEST_PASSWORD_RESET];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_VERIFY_RESET_OTP]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_VERIFY_RESET_OTP];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_RESEND_RESET_OTP]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_RESEND_RESET_OTP];
+GO
+
+IF OBJECT_ID(N'[dbo].[PasswordResetOTPs]', N'U') IS NOT NULL
+	DROP TABLE [dbo].[PasswordResetOTPs];
+GO
+
 IF OBJECT_ID(N'[dbo].[SP_SEARCH_PRODUCTS]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_SEARCH_PRODUCTS];
 GO
@@ -4727,7 +4743,7 @@ BEGIN
 END
 GO
 
-CREATE PROCEDURE [dbo].[SP_UPDATE_ORDER_STATUS_WITH_PAYMENT]
+CREATE OR ALTER PROCEDURE [dbo].[SP_UPDATE_ORDER_STATUS_WITH_PAYMENT]
 	@OrderId BIGINT = NULL,
 	@OrderNumber NVARCHAR(50) = NULL,
 	@Status NVARCHAR(50) = NULL,
@@ -4752,6 +4768,7 @@ BEGIN
 		DECLARE @OrderTenantId BIGINT;
 		DECLARE @ResolvedOrderNumber NVARCHAR(50);
 		DECLARE @ResolvedRazorpayOrderId NVARCHAR(255) = NULL;
+		DECLARE @OrderCouponId BIGINT = NULL;
 		
 		-- Resolve OrderId from OrderNumber if OrderId is not provided
 		IF @OrderId IS NULL AND @OrderNumber IS NOT NULL
@@ -4770,37 +4787,109 @@ BEGIN
 		BEGIN
 			SET @ResolvedOrderId = @OrderId;
 		END
+		-- Resolve OrderId from RazorpayOrderId if OrderId and OrderNumber are both NULL
+		ELSE IF @OrderId IS NULL AND @OrderNumber IS NULL AND @RazorpayOrderId IS NOT NULL
+		BEGIN
+			-- Try to get OrderId from RazorpayOrders table
+			SELECT TOP 1 @ResolvedOrderId = OrderId
+			FROM RazorpayOrders
+			WHERE RazorpayOrderId = @RazorpayOrderId AND Active = 1
+			ORDER BY CreatedAt DESC;
+			
+			-- If not found in RazorpayOrders, try RazorpayPayments
+			IF @ResolvedOrderId IS NULL
+			BEGIN
+				SELECT TOP 1 @ResolvedOrderId = OrderId
+				FROM RazorpayPayments
+				WHERE RazorpayOrderId = @RazorpayOrderId AND OrderId IS NOT NULL
+				ORDER BY CreatedAt DESC;
+			END
+			
+			-- If OrderId is still NULL, it means order doesn't exist yet (e.g., payment cancelled before order creation)
+			-- In this case, we'll just update RazorpayOrders/RazorpayPayments tables and return success
+			-- This is a valid scenario for payment cancellations
+		END
 		ELSE
 		BEGIN
-			RAISERROR('Either OrderId or OrderNumber must be provided.', 16, 1);
+			RAISERROR('Either OrderId, OrderNumber, or RazorpayOrderId must be provided.', 16, 1);
 			RETURN;
 		END
 		
-		-- Get current order information
-		SELECT 
-			@CurrentOrderStatus = OrderStatus,
-			@CurrentPaymentStatus = PaymentStatus,
-			@OrderUserId = UserId,
-			@OrderTenantId = TenantId,
-			@ResolvedOrderNumber = OrderNumber
-		FROM Orders
-		WHERE OrderId = @ResolvedOrderId AND Active = 1;
-		
-		IF @CurrentOrderStatus IS NULL
+		-- Get current order information (only if OrderId exists)
+		IF @ResolvedOrderId IS NOT NULL
 		BEGIN
-			RAISERROR('Order not found or inactive.', 16, 1);
-			RETURN;
+			SELECT 
+				@CurrentOrderStatus = OrderStatus,
+				@CurrentPaymentStatus = PaymentStatus,
+				@OrderUserId = UserId,
+				@OrderTenantId = TenantId,
+				@ResolvedOrderNumber = OrderNumber,
+				@OrderCouponId = CouponId
+			FROM Orders
+			WHERE OrderId = @ResolvedOrderId AND Active = 1;
+			
+			IF @CurrentOrderStatus IS NULL
+			BEGIN
+				RAISERROR('Order not found or inactive.', 16, 1);
+				RETURN;
+			END
+			
+			-- SIMPLIFIED INVENTORY RESTORATION: Restore stock when payment fails/cancels
+			-- Simple logic: If payment is cancelled/failed AND order exists AND wasn't already cancelled, restore stock
+			IF @ResolvedOrderId IS NOT NULL
+				AND (
+					@PaymentStatus IN ('failed', 'cancelled', 'Failed', 'Cancelled')
+					OR @Status IN ('cancelled', 'Cancelled')
+				)
+				AND UPPER(LTRIM(RTRIM(ISNULL(@CurrentPaymentStatus, '')))) NOT IN ('FAILED', 'CANCELLED')
+				AND UPPER(LTRIM(RTRIM(ISNULL(@CurrentOrderStatus, '')))) NOT IN ('CANCELLED')
+			BEGIN
+				-- Restore product stock using simple JOIN-based UPDATE
+				UPDATE p
+				SET 
+					p.Quantity = p.Quantity + oi.Quantity,
+					p.UserBuyCount = CASE 
+						WHEN p.UserBuyCount >= oi.Quantity THEN p.UserBuyCount - oi.Quantity
+						ELSE 0
+					END,
+					p.Modified = @CurrentTime
+				FROM Products p
+				INNER JOIN OrderItems oi ON p.ProductId = oi.ProductId
+				WHERE oi.OrderId = @ResolvedOrderId 
+					AND oi.Active = 1
+					AND p.Active = 1;
+				
+				-- Restore coupon if used
+				IF @OrderCouponId IS NOT NULL
+				BEGIN
+					BEGIN TRY
+						UPDATE Coupons
+						SET UsageCount = CASE WHEN UsageCount > 0 THEN UsageCount - 1 ELSE 0 END,
+							UpdatedAt = @CurrentTime
+						WHERE CouponId = @OrderCouponId;
+						
+						IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'CouponUsage')
+						BEGIN
+							DELETE FROM CouponUsage
+							WHERE OrderId = @ResolvedOrderId AND CouponId = @OrderCouponId;
+						END
+					END TRY
+					BEGIN CATCH
+						-- Ignore coupon restore errors
+					END CATCH
+				END
+			END
+			
+			-- Update Orders table
+			UPDATE Orders
+			SET 
+				OrderStatus = ISNULL(@Status, OrderStatus),
+				PaymentStatus = ISNULL(@PaymentStatus, PaymentStatus),
+				PaymentTransactionId = ISNULL(@RazorpayPaymentId, PaymentTransactionId),
+				Notes = ISNULL(@Notes, Notes),
+				UpdatedAt = @CurrentTime
+			WHERE OrderId = @ResolvedOrderId;
 		END
-		
-		-- Update Orders table
-		UPDATE Orders
-		SET 
-			OrderStatus = ISNULL(@Status, OrderStatus),
-			PaymentStatus = ISNULL(@PaymentStatus, PaymentStatus),
-			PaymentTransactionId = ISNULL(@RazorpayPaymentId, PaymentTransactionId),
-			Notes = ISNULL(@Notes, Notes),
-			UpdatedAt = @CurrentTime
-		WHERE OrderId = @ResolvedOrderId;
 		
 		-- Resolve RazorpayOrderId from RazorpayPayments if only RazorpayPaymentId is provided
 		IF @RazorpayOrderId IS NULL AND @RazorpayPaymentId IS NOT NULL
@@ -4823,6 +4912,8 @@ BEGIN
 				Status = CASE 
 					WHEN @PaymentStatus = 'paid' THEN 'paid'
 					WHEN @PaymentStatus = 'failed' THEN 'failed'
+					WHEN @PaymentStatus = 'cancelled' THEN 'cancelled'
+					WHEN @Status = 'cancelled' THEN 'cancelled'
 					ELSE Status
 				END,
 				UpdatedAt = @CurrentTime
@@ -4838,6 +4929,7 @@ BEGIN
 				Status = CASE 
 					WHEN @PaymentStatus = 'paid' THEN 'captured'
 					WHEN @PaymentStatus = 'failed' THEN 'failed'
+					WHEN @PaymentStatus = 'cancelled' THEN 'cancelled'
 					ELSE Status
 				END,
 				Signature = ISNULL(@RazorpaySignature, Signature),
@@ -4845,8 +4937,11 @@ BEGIN
 			WHERE RazorpayPaymentId = @RazorpayPaymentId;
 		END
 		
-		-- Add status history record if status changed
-		IF @Status IS NOT NULL AND @Status != @CurrentOrderStatus
+		-- Note: Inventory restoration is now handled BEFORE updating Orders table (see above)
+		-- This ensures we check the original status before it's changed
+		
+		-- Add status history record if status changed (only if order exists)
+		IF @ResolvedOrderId IS NOT NULL AND @Status IS NOT NULL AND @Status != @CurrentOrderStatus
 		BEGIN
 			INSERT INTO OrderStatusHistory (
 				OrderId,
@@ -4869,19 +4964,36 @@ BEGIN
 		
 		COMMIT TRANSACTION;
 		
-		-- Return the updated order information
-		SELECT 
-			OrderId,
-			OrderNumber,
-			OrderStatus AS Status,
-			PaymentStatus,
-			PaymentTransactionId AS RazorpayPaymentId,
-			@ResolvedRazorpayOrderId AS RazorpayOrderId,
-			UpdatedAt,
-			@UpdatedBy AS UpdatedBy,
-			'Order status updated successfully' AS Message
-		FROM Orders
-		WHERE OrderId = @ResolvedOrderId;
+		-- Return the updated order information (if order exists)
+		IF @ResolvedOrderId IS NOT NULL
+		BEGIN
+			SELECT 
+				OrderId,
+				OrderNumber,
+				OrderStatus AS Status,
+				PaymentStatus,
+				PaymentTransactionId AS RazorpayPaymentId,
+				@ResolvedRazorpayOrderId AS RazorpayOrderId,
+				UpdatedAt,
+				@UpdatedBy AS UpdatedBy,
+				'Order status updated successfully' AS Message
+			FROM Orders
+			WHERE OrderId = @ResolvedOrderId;
+		END
+		ELSE
+		BEGIN
+			-- Return success response even if order doesn't exist (payment cancelled before order creation)
+			SELECT 
+				NULL AS OrderId,
+				NULL AS OrderNumber,
+				@Status AS Status,
+				@PaymentStatus AS PaymentStatus,
+				@RazorpayPaymentId AS RazorpayPaymentId,
+				@RazorpayOrderId AS RazorpayOrderId,
+				@CurrentTime AS UpdatedAt,
+				@UpdatedBy AS UpdatedBy,
+				'Payment status updated successfully (order not created yet)' AS Message;
+		END
 		
 	END TRY
 	BEGIN CATCH
@@ -7295,5 +7407,321 @@ BEGIN
 		
 		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
 	END CATCH
+END
+GO
+
+-- =============================================
+-- Request Password Reset (Generate and Send OTP)
+-- =============================================
+CREATE OR ALTER PROCEDURE [dbo].[SP_REQUEST_PASSWORD_RESET]
+	@Email NVARCHAR(255),
+	@IpAddress NVARCHAR(45) = NULL,
+	@UserAgent NVARCHAR(500) = NULL
+AS
+BEGIN
+	SET NOCOUNT ON;
+	
+	BEGIN TRY
+		DECLARE @UserId BIGINT = NULL;
+		DECLARE @FirstName NVARCHAR(100) = NULL;
+		DECLARE @IsActive BIT = 0;
+		DECLARE @EmailVerified BIT = 0;
+		DECLARE @CurrentTime DATETIME2(7) = GETUTCDATE();
+		DECLARE @OTP NVARCHAR(6);
+		DECLARE @ExpiresAt DATETIME2(7);
+		DECLARE @RecentRequestCount INT = 0;
+		
+		-- Find user by email
+		SELECT 
+			@UserId = UserId,
+			@FirstName = FirstName,
+			@IsActive = Active,
+			@EmailVerified = EmailVerified
+		FROM Users 
+		WHERE Email = @Email AND Active = 1;
+		
+		-- Always return success message (prevent email enumeration)
+		-- But only process if user exists
+		IF @UserId IS NULL
+		BEGIN
+			SELECT 
+				'If email exists, OTP has been sent to your email address.' AS Message,
+				600 AS ExpiresInSeconds,
+				0 AS UserId,
+				'' AS OTP,
+				'' AS Email
+			RETURN;
+		END
+		
+		-- Rate limiting: Check recent requests (max 3 per hour)
+		SELECT @RecentRequestCount = COUNT(*)
+		FROM PasswordResetOTPs
+		WHERE Email = @Email 
+			AND CreatedAt > DATEADD(HOUR, -1, @CurrentTime)
+			AND Used = 0;
+		
+		IF @RecentRequestCount >= 3
+		BEGIN
+			SELECT 
+				'Too many reset requests. Please wait before requesting again.' AS Message,
+				0 AS ExpiresInSeconds,
+				0 AS UserId,
+				'' AS OTP,
+				'' AS Email
+			RETURN;
+		END
+		
+		-- Invalidate any existing unused OTPs for this email
+		UPDATE PasswordResetOTPs
+		SET Used = 1,
+			UsedAt = @CurrentTime
+		WHERE Email = @Email 
+			AND Used = 0
+			AND ExpiresAt > @CurrentTime;
+		
+		-- Generate 6-digit OTP
+		SET @OTP = RIGHT('000000' + CAST(ABS(CHECKSUM(NEWID())) % 1000000 AS NVARCHAR(6)), 6);
+		SET @ExpiresAt = DATEADD(MINUTE, 10, @CurrentTime); -- 10 minutes expiration
+		
+		-- Insert OTP record
+		INSERT INTO PasswordResetOTPs (
+			UserId,
+			Email,
+			OTP,
+			ExpiresAt,
+			IpAddress,
+			UserAgent,
+			CreatedAt
+		) VALUES (
+			@UserId,
+			@Email,
+			@OTP,
+			@ExpiresAt,
+			@IpAddress,
+			@UserAgent,
+			@CurrentTime
+		);
+		
+		-- Log the password reset request
+		INSERT INTO UserActivityLog (
+			UserId,
+			ActivityType,
+			ActivityDescription,
+			IpAddress,
+			UserAgent,
+			CreatedAt
+		) VALUES (
+			@UserId,
+			'PASSWORD_RESET_REQUESTED',
+			'Password reset OTP requested',
+			@IpAddress,
+			@UserAgent,
+			@CurrentTime
+		);
+		
+		-- Return success (OTP will be sent via email service)
+		SELECT 
+			'If email exists, OTP has been sent to your email address.' AS Message,
+			600 AS ExpiresInSeconds,
+			@UserId AS UserId,
+			@OTP AS OTP, -- Only for development/testing - remove in production
+			@Email AS Email,
+			@FirstName AS FirstName
+		
+	END TRY
+	BEGIN CATCH
+		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+		DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+		DECLARE @ErrorState INT = ERROR_STATE();
+		
+		-- Return generic error message
+		SELECT 
+			'An error occurred while processing your request.' AS Message,
+			0 AS ExpiresInSeconds,
+			0 AS UserId,
+			'' AS OTP,
+			'' AS Email
+		
+		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+	END CATCH
+END
+GO
+
+-- =============================================
+-- Verify OTP and Reset Password
+-- =============================================
+CREATE OR ALTER PROCEDURE [dbo].[SP_VERIFY_RESET_OTP]
+	@Email NVARCHAR(255),
+	@OTP NVARCHAR(6),
+	@NewPassword NVARCHAR(100),
+	@IpAddress NVARCHAR(45) = NULL,
+	@UserAgent NVARCHAR(500) = NULL
+AS
+BEGIN
+	SET NOCOUNT ON;
+	
+	BEGIN TRY
+		BEGIN TRANSACTION;
+		
+		DECLARE @UserId BIGINT = NULL;
+		DECLARE @OtpId BIGINT = NULL;
+		DECLARE @ExpiresAt DATETIME2(7) = NULL;
+		DECLARE @Used BIT = 0;
+		DECLARE @Attempts INT = 0;
+		DECLARE @CurrentTime DATETIME2(7) = GETUTCDATE();
+		DECLARE @Salt NVARCHAR(50) = NULL;
+		DECLARE @HashedPassword NVARCHAR(255) = NULL;
+		
+		-- Find valid OTP
+		SELECT 
+			@OtpId = OtpId,
+			@UserId = UserId,
+			@ExpiresAt = ExpiresAt,
+			@Used = Used,
+			@Attempts = Attempts
+		FROM PasswordResetOTPs
+		WHERE Email = @Email 
+			AND OTP = @OTP
+			AND Used = 0;
+		
+		-- Check if OTP exists
+		IF @OtpId IS NULL OR @UserId IS NULL
+		BEGIN
+			-- Increment attempts if OTP record exists but is wrong
+			IF EXISTS (SELECT 1 FROM PasswordResetOTPs WHERE Email = @Email AND Used = 0)
+			BEGIN
+				UPDATE PasswordResetOTPs
+				SET Attempts = Attempts + 1
+				WHERE Email = @Email AND Used = 0;
+			END
+			
+			RAISERROR('Invalid OTP. Please check and try again.', 16, 1);
+			RETURN;
+		END
+		
+		-- Check if OTP has been used
+		IF @Used = 1
+		BEGIN
+			RAISERROR('This OTP has already been used. Please request a new one.', 16, 1);
+			RETURN;
+		END
+		
+		-- Check if OTP has expired
+		IF @ExpiresAt < @CurrentTime
+		BEGIN
+			UPDATE PasswordResetOTPs
+			SET Used = 1,
+				UsedAt = @CurrentTime
+			WHERE OtpId = @OtpId;
+			
+			RAISERROR('OTP has expired. Please request a new one.', 16, 1);
+			RETURN;
+		END
+		
+		-- Check max attempts (5 attempts max)
+		IF @Attempts >= 5
+		BEGIN
+			UPDATE PasswordResetOTPs
+			SET Used = 1,
+				UsedAt = @CurrentTime
+			WHERE OtpId = @OtpId;
+			
+			RAISERROR('Too many failed attempts. Please request a new OTP.', 16, 1);
+			RETURN;
+		END
+		
+		-- Verify user is active
+		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		BEGIN
+			RAISERROR('User account is not active.', 16, 1);
+			RETURN;
+		END
+		
+		-- Generate new salt and hash password
+		SET @Salt = CONVERT(NVARCHAR(50), NEWID());
+		SET @HashedPassword = CONVERT(NVARCHAR(100), HASHBYTES('SHA2_256', CAST(@NewPassword AS NVARCHAR(100)) + @Salt), 2);
+		
+		-- Update user password
+		UPDATE Users
+		SET 
+			PasswordHash = @HashedPassword,
+			Salt = @Salt,
+			PasswordChangedAt = @CurrentTime,
+			LastPasswordReset = @CurrentTime,
+			UpdatedAt = @CurrentTime,
+			LoginAttempts = 0,
+			AccountLocked = 0
+		WHERE UserId = @UserId;
+		
+		-- Mark OTP as used
+		UPDATE PasswordResetOTPs
+		SET 
+			Used = 1,
+			UsedAt = @CurrentTime
+		WHERE OtpId = @OtpId;
+		
+		-- Invalidate all other unused OTPs for this user
+		UPDATE PasswordResetOTPs
+		SET Used = 1,
+			UsedAt = @CurrentTime
+		WHERE UserId = @UserId 
+			AND Used = 0
+			AND OtpId != @OtpId;
+		
+		-- Log the password reset activity
+		INSERT INTO UserActivityLog (
+			UserId,
+			ActivityType,
+			ActivityDescription,
+			IpAddress,
+			UserAgent,
+			CreatedAt
+		) VALUES (
+			@UserId,
+			'PASSWORD_RESET',
+			'Password reset successfully using OTP',
+			@IpAddress,
+			@UserAgent,
+			@CurrentTime
+		);
+		
+		-- Return success
+		SELECT 
+			@UserId AS UserId,
+			'Password reset successful. You can now login with your new password.' AS Message,
+			@CurrentTime AS ResetAt
+		
+		COMMIT TRANSACTION;
+		
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+			
+		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+		DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+		DECLARE @ErrorState INT = ERROR_STATE();
+		
+		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+	END CATCH
+END
+GO
+
+-- =============================================
+-- Resend Password Reset OTP
+-- =============================================
+CREATE OR ALTER PROCEDURE [dbo].[SP_RESEND_RESET_OTP]
+	@Email NVARCHAR(255),
+	@IpAddress NVARCHAR(45) = NULL,
+	@UserAgent NVARCHAR(500) = NULL
+AS
+BEGIN
+	SET NOCOUNT ON;
+	
+	-- Reuse the same logic as request password reset
+	EXEC [dbo].[SP_REQUEST_PASSWORD_RESET] 
+		@Email = @Email,
+		@IpAddress = @IpAddress,
+		@UserAgent = @UserAgent
 END
 GO

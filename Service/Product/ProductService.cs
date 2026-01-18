@@ -2571,6 +2571,105 @@ namespace Tenant.Query.Service.Product
         }
 
         /// <summary>
+        /// Mark payment as failed or cancelled
+        /// </summary>
+        public async Task<Model.Order.MarkPaymentFailedResponse> MarkPaymentFailed(Model.Order.MarkPaymentFailedRequest request)
+        {
+            try
+            {
+                this._loggerFactory.CreateLogger<ProductService>()
+                    .LogInformation($"Marking payment as {request.Reason}. RazorpayOrderId: {request.RazorpayOrderId}");
+
+                if (request == null)
+                    throw new ArgumentNullException(nameof(request));
+
+                if (string.IsNullOrEmpty(request.RazorpayOrderId))
+                    throw new ArgumentException("Razorpay Order ID is required");
+
+                if (string.IsNullOrEmpty(request.Reason) || (request.Reason != "cancelled" && request.Reason != "failed"))
+                    throw new ArgumentException("Reason must be either 'cancelled' or 'failed'");
+
+                // Determine order status based on reason
+                string orderStatus = request.Reason == "cancelled" ? "cancelled" : "failed";
+                string paymentStatus = "failed";
+
+                // Update order status to failed/cancelled
+                var updateRequest = new Model.Order.UpdateOrderStatusWithPaymentRequest
+                {
+                    RazorpayOrderId = request.RazorpayOrderId,
+                    Status = orderStatus,
+                    PaymentStatus = paymentStatus,
+                    Notes = $"Payment {request.Reason}: {request.ReasonDescription ?? "User cancelled or payment failed"}"
+                };
+
+                var updateResult = await this.productRepository.UpdateOrderStatusWithPayment(updateRequest);
+
+                // Handle case where order doesn't exist yet (payment cancelled before order creation)
+                if (updateResult == null)
+                {
+                    this._loggerFactory.CreateLogger<ProductService>()
+                        .LogWarning($"Payment marked as {request.Reason} but order not found. RazorpayOrderId: {request.RazorpayOrderId}");
+                    
+                    // Return success response even if order doesn't exist (this is valid for cancellations)
+                    return new Model.Order.MarkPaymentFailedResponse
+                    {
+                        Success = true,
+                        Message = $"Payment marked as {request.Reason} (order not created yet)",
+                        OrderId = null,
+                        OrderNumber = null,
+                        PaymentStatus = paymentStatus
+                    };
+                }
+
+                this._loggerFactory.CreateLogger<ProductService>()
+                    .LogInformation($"Payment marked as {request.Reason} successfully. OrderId: {updateResult.OrderId}");
+
+                return new Model.Order.MarkPaymentFailedResponse
+                {
+                    Success = true,
+                    Message = $"Payment marked as {request.Reason}",
+                    OrderId = updateResult.OrderId,
+                    OrderNumber = updateResult.OrderNumber,
+                    PaymentStatus = updateResult.PaymentStatus
+                };
+            }
+            catch (Exception ex)
+            {
+                this._loggerFactory.CreateLogger<ProductService>()
+                    .LogError($"Error marking payment as failed: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Get payment status for a Razorpay order
+        /// </summary>
+        public async Task<Model.Order.PaymentStatusResponse> GetPaymentStatus(string razorpayOrderId)
+        {
+            try
+            {
+                this._loggerFactory.CreateLogger<ProductService>()
+                    .LogInformation($"Getting payment status for Razorpay Order ID: {razorpayOrderId}");
+
+                if (string.IsNullOrEmpty(razorpayOrderId))
+                    throw new ArgumentException("Razorpay Order ID is required");
+
+                var result = await this.productRepository.GetPaymentStatus(razorpayOrderId);
+
+                this._loggerFactory.CreateLogger<ProductService>()
+                    .LogInformation($"Payment status retrieved for Razorpay Order ID: {razorpayOrderId}, Status: {result.PaymentStatus}");
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                this._loggerFactory.CreateLogger<ProductService>()
+                    .LogError($"Error getting payment status: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
         /// Create Razorpay order via API
         /// </summary>
         private async Task<string> CreateRazorpayOrderAsync(long amount, string currency, string receipt, string keyId, string keySecret)

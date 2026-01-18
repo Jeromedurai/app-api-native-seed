@@ -509,6 +509,117 @@ namespace Tenant.Query.Controllers.Payment
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = "An error occurred while verifying the payment. Please try again later." });
             }
         }
+
+        /// <summary>
+        /// Mark Razorpay payment as failed or cancelled
+        /// </summary>
+        /// <param name="request">Mark payment failed request</param>
+        /// <returns>Mark payment failed response</returns>
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [HttpPost]
+        [Route("mark-payment-failed")]
+        public async Task<IActionResult> MarkPaymentFailed([FromBody] Model.Order.MarkPaymentFailedRequest request)
+        {
+            try
+            {
+                // Validate request is not null
+                if (request == null)
+                {
+                    return BadRequest(new ApiResult { Exception = "Request cannot be null" });
+                }
+
+                // Validate model state
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    var errorMessage = string.Join("; ", errors);
+                    return BadRequest(new ApiResult { Exception = errorMessage });
+                }
+
+                // Validate Razorpay Order ID
+                if (string.IsNullOrWhiteSpace(request.RazorpayOrderId))
+                {
+                    return BadRequest(new ApiResult { Exception = "Razorpay Order ID is required" });
+                }
+
+                // Validate Reason
+                if (string.IsNullOrWhiteSpace(request.Reason) || 
+                    (request.Reason != "cancelled" && request.Reason != "failed"))
+                {
+                    return BadRequest(new ApiResult { Exception = "Reason must be either 'cancelled' or 'failed'" });
+                }
+
+                // Call service to mark payment as failed
+                var result = await this.Service.MarkPaymentFailed(request);
+
+                if (result == null)
+                {
+                    return NotFound(new ApiResult { Exception = "Payment not found or could not be marked as failed" });
+                }
+
+                // Return success response
+                return Ok(new ApiResult { Data = result });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResult { Exception = ex.Message });
+            }
+            catch (System.Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = "An error occurred while marking payment as failed. Please try again later." });
+            }
+        }
+
+        /// <summary>
+        /// Get payment status for a Razorpay order
+        /// </summary>
+        /// <param name="razorpayOrderId">Razorpay Order ID</param>
+        /// <returns>Payment status response</returns>
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status404NotFound, "Not Found", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [HttpGet]
+        [Route("payment-status/{razorpayOrderId}")]
+        public async Task<IActionResult> GetPaymentStatus(string razorpayOrderId)
+        {
+            try
+            {
+                // Validate Razorpay Order ID
+                if (string.IsNullOrWhiteSpace(razorpayOrderId))
+                {
+                    return BadRequest(new ApiResult { Exception = "Razorpay Order ID is required" });
+                }
+
+                // Call service to get payment status
+                var result = await this.Service.GetPaymentStatus(razorpayOrderId);
+
+                if (result == null)
+                {
+                    return NotFound(new ApiResult { Exception = "Payment status not found" });
+                }
+
+                // Return success response
+                return Ok(new ApiResult { Data = result });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (System.Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = "An error occurred while retrieving payment status. Please try again later." });
+            }
+        }
     }
 }
 

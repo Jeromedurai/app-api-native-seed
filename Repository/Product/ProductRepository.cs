@@ -2081,7 +2081,6 @@ namespace Tenant.Query.Repository.Product
                     DiscountAmount = Convert.ToDecimal(orderRow["DiscountAmount"]),
                     Notes = orderRow["Notes"]?.ToString() ?? "",
                     ShippingAddress = orderRow["ShippingAddress"]?.ToString() ?? "",
-                    BillingAddress = orderRow["BillingAddress"]?.ToString() ?? "",
                     PaymentMethod = orderRow["PaymentMethod"]?.ToString() ?? "",
                     ShippingMethod = orderRow["ShippingMethod"]?.ToString() ?? "",
                     CreatedAt = Convert.ToDateTime(orderRow["CreatedAt"]),
@@ -2094,70 +2093,91 @@ namespace Tenant.Query.Repository.Product
                 };
 
                 // Process order items (second result set)
-                if (result.Tables.Count > 1 && result.Tables[1].Rows.Count > 0)
+                if (result.Tables.Count > 1 && result.Tables[1] != null && result.Tables[1].Rows != null && result.Tables[1].Rows.Count > 0)
                 {
                     orderResponse.Items = new List<Model.Order.OrderDetailItemInfo>();
                     foreach (DataRow row in result.Tables[1].Rows)
                     {
+                        if (row == null) continue;
+                        
                         orderResponse.Items.Add(new Model.Order.OrderDetailItemInfo
                         {
-                            OrderItemId = Convert.ToInt64(row["OrderItemId"]),
-                            ProductId = Convert.ToInt64(row["ProductId"]),
+                            OrderItemId = row["OrderItemId"] != null && row["OrderItemId"] != DBNull.Value ? Convert.ToInt64(row["OrderItemId"]) : 0,
+                            ProductId = row["ProductId"] != null && row["ProductId"] != DBNull.Value ? Convert.ToInt64(row["ProductId"]) : 0,
                             ProductName = row["ProductName"]?.ToString() ?? "",
                             ProductImage = row["ProductImage"]?.ToString() ?? "",
-                            Price = Convert.ToDecimal(row["Price"]),
-                            Quantity = Convert.ToInt32(row["Quantity"]),
-                            Total = Convert.ToDecimal(row["Total"]),
-                            CreatedAt = Convert.ToDateTime(row["CreatedAt"]),
+                            Price = row["Price"] != null && row["Price"] != DBNull.Value ? Convert.ToDecimal(row["Price"]) : 0,
+                            Quantity = row["Quantity"] != null && row["Quantity"] != DBNull.Value ? Convert.ToInt32(row["Quantity"]) : 0,
+                            Total = row["Total"] != null && row["Total"] != DBNull.Value ? Convert.ToDecimal(row["Total"]) : 0,
+                            CreatedAt = row["CreatedAt"] != null && row["CreatedAt"] != DBNull.Value ? Convert.ToDateTime(row["CreatedAt"]) : DateTime.UtcNow,
                             ProductCode = row["ProductCode"]?.ToString() ?? "",
                             ProductDescription = row["ProductDescription"]?.ToString() ?? "",
                             Category = row["Category"]?.ToString() ?? "",
-                            Rating = row["Rating"] != DBNull.Value ? Convert.ToDecimal(row["Rating"]) : 0,
+                            Rating = row["Rating"] != null && row["Rating"] != DBNull.Value ? Convert.ToDecimal(row["Rating"]) : 0,
                             Offer = row["Offer"]?.ToString() ?? "",
-                            InStock = row["InStock"] != DBNull.Value ? Convert.ToBoolean(row["InStock"]) : false,
-                            BestSeller = row["BestSeller"] != DBNull.Value ? Convert.ToBoolean(row["BestSeller"]) : false
+                            InStock = row["InStock"] != null && row["InStock"] != DBNull.Value ? Convert.ToBoolean(row["InStock"]) : false,
+                            BestSeller = row["BestSeller"] != null && row["BestSeller"] != DBNull.Value ? Convert.ToBoolean(row["BestSeller"]) : false
                         });
                     }
                 }
+                else
+                {
+                    // Initialize empty list if items don't exist
+                    orderResponse.Items = new List<Model.Order.OrderDetailItemInfo>();
+                }
 
                 // Process order status history (third result set)
-                if (result.Tables.Count > 2 && result.Tables[2].Rows.Count > 0)
+                if (result.Tables.Count > 2 && result.Tables[2] != null && result.Tables[2].Rows != null && result.Tables[2].Rows.Count > 0)
                 {
                     orderResponse.StatusHistory = new List<Model.Order.OrderStatusHistoryInfo>();
                     foreach (DataRow row in result.Tables[2].Rows)
                     {
+                        if (row == null) continue;
+                        
                         orderResponse.StatusHistory.Add(new Model.Order.OrderStatusHistoryInfo
                         {
-                            StatusHistoryId = Convert.ToInt64(row["StatusHistoryId"]),
+                            StatusHistoryId = row["StatusHistoryId"] != null && row["StatusHistoryId"] != DBNull.Value ? Convert.ToInt64(row["StatusHistoryId"]) : 0,
                             PreviousStatus = row["PreviousStatus"]?.ToString() ?? "",
                             NewStatus = row["NewStatus"]?.ToString() ?? "",
                             StatusNote = row["StatusNote"]?.ToString() ?? "",
-                            ChangedBy = Convert.ToInt64(row["ChangedBy"]),
+                            ChangedBy = row["ChangedBy"] != null && row["ChangedBy"] != DBNull.Value ? Convert.ToInt64(row["ChangedBy"]) : 0,
                             ChangedByName = row["ChangedByName"]?.ToString() ?? "",
-                            ChangedAt = Convert.ToDateTime(row["ChangedAt"])
+                            ChangedAt = row["ChangedAt"] != null && row["ChangedAt"] != DBNull.Value ? Convert.ToDateTime(row["ChangedAt"]) : DateTime.UtcNow
                         });
                     }
                 }
+                else
+                {
+                    // Initialize empty list if status history doesn't exist
+                    orderResponse.StatusHistory = new List<Model.Order.OrderStatusHistoryInfo>();
+                }
 
                 // Process order tracking information (fourth result set)
-                if (result.Tables.Count > 3 && result.Tables[3].Rows.Count > 0)
+                if (result.Tables.Count > 3 && result.Tables[3] != null && result.Tables[3].Rows != null && result.Tables[3].Rows.Count > 0)
                 {
                     orderResponse.TrackingInfo = new List<Model.Order.OrderTrackingInfo>();
                     foreach (DataRow row in result.Tables[3].Rows)
                     {
+                        if (row == null) continue;
+                        
                         orderResponse.TrackingInfo.Add(new Model.Order.OrderTrackingInfo
                         {
-                            TrackingId = Convert.ToInt64(row["TrackingId"]),
+                            TrackingId = row["TrackingId"] != null && row["TrackingId"] != DBNull.Value ? Convert.ToInt64(row["TrackingId"]) : 0,
                             TrackingNumber = row["TrackingNumber"]?.ToString() ?? "",
                             Carrier = row["Carrier"]?.ToString() ?? "",
                             TrackingStatus = row["TrackingStatus"]?.ToString() ?? "",
-                            EstimatedDelivery = row["EstimatedDelivery"] != DBNull.Value ? Convert.ToDateTime(row["EstimatedDelivery"]) : null,
-                            ActualDelivery = row["ActualDelivery"] != DBNull.Value ? Convert.ToDateTime(row["ActualDelivery"]) : null,
+                            EstimatedDelivery = row["EstimatedDelivery"] != null && row["EstimatedDelivery"] != DBNull.Value ? Convert.ToDateTime(row["EstimatedDelivery"]) : (DateTime?)null,
+                            ActualDelivery = row["ActualDelivery"] != null && row["ActualDelivery"] != DBNull.Value ? Convert.ToDateTime(row["ActualDelivery"]) : (DateTime?)null,
                             TrackingUrl = row["TrackingUrl"]?.ToString() ?? "",
-                            CreatedAt = Convert.ToDateTime(row["CreatedAt"]),
-                            UpdatedAt = Convert.ToDateTime(row["UpdatedAt"])
+                            CreatedAt = row["CreatedAt"] != null && row["CreatedAt"] != DBNull.Value ? Convert.ToDateTime(row["CreatedAt"]) : DateTime.UtcNow,
+                            UpdatedAt = row["UpdatedAt"] != null && row["UpdatedAt"] != DBNull.Value ? Convert.ToDateTime(row["UpdatedAt"]) : DateTime.UtcNow
                         });
                     }
+                }
+                else
+                {
+                    // Initialize empty list if tracking info doesn't exist
+                    orderResponse.TrackingInfo = new List<Model.Order.OrderTrackingInfo>();
                 }
 
                 this.Logger.LogInformation($"Repository: Get order by ID successful for user {request.UserId}, order {request.OrderId}");
@@ -2371,22 +2391,40 @@ namespace Tenant.Query.Repository.Product
 
                 if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
                 {
-                    throw new KeyNotFoundException("Order not found or access denied");
+                    // This can happen if order doesn't exist yet (e.g., payment cancelled before order creation)
+                    // Return null to let service handle it gracefully
+                    this.Logger.LogWarning("Repository: Update order status returned no results - order may not exist yet");
+                    return null;
                 }
 
                 // Process status update result
                 var statusRow = result.Tables[0].Rows[0];
+                
+                // Handle case where OrderId is NULL (order doesn't exist yet)
+                var orderIdValue = statusRow["OrderId"];
+                long? orderId = null;
+                if (orderIdValue != DBNull.Value && orderIdValue != null)
+                {
+                    orderId = Convert.ToInt64(orderIdValue);
+                }
+                
+                // If OrderId is null, order doesn't exist yet (payment cancelled before order creation)
+                if (orderId == null)
+                {
+                    this.Logger.LogInformation("Repository: Payment status updated but order not created yet");
+                }
+                
                 var statusResponse = new Model.Order.UpdateOrderStatusWithPaymentResponse
                 {
-                    OrderId = Convert.ToInt64(statusRow["OrderId"]),
-                    OrderNumber = statusRow["OrderNumber"]?.ToString() ?? "",
+                    OrderId = orderId,
+                    OrderNumber = statusRow["OrderNumber"] != DBNull.Value ? statusRow["OrderNumber"]?.ToString() : null,
                     Status = statusRow["Status"]?.ToString() ?? "",
                     PaymentStatus = statusRow["PaymentStatus"]?.ToString() ?? "",
-                    RazorpayPaymentId = statusRow["RazorpayPaymentId"]?.ToString() ?? "",
-                    RazorpayOrderId = statusRow["RazorpayOrderId"]?.ToString() ?? "",
+                    RazorpayPaymentId = statusRow["RazorpayPaymentId"] != DBNull.Value ? statusRow["RazorpayPaymentId"]?.ToString() : null,
+                    RazorpayOrderId = statusRow["RazorpayOrderId"] != DBNull.Value ? statusRow["RazorpayOrderId"]?.ToString() : null,
                     UpdatedAt = Convert.ToDateTime(statusRow["UpdatedAt"]),
                     UpdatedBy = statusRow["UpdatedBy"] != DBNull.Value ? Convert.ToInt64(statusRow["UpdatedBy"]) : null,
-                    Message = statusRow["Message"]?.ToString() ?? "Order status updated successfully"
+                    Message = statusRow["Message"]?.ToString() ?? (orderId == null ? "Payment status updated successfully (order not created yet)" : "Order status updated successfully")
                 };
 
                 this.Logger.LogInformation($"Repository: Update order status with payment successful for order {request.OrderId?.ToString() ?? request.OrderNumber ?? "unknown"}");
@@ -2398,6 +2436,70 @@ namespace Tenant.Query.Repository.Product
                 this.Logger.LogError($"Repository: Update order status with payment error for order {request.OrderId?.ToString() ?? request.OrderNumber ?? "unknown"}: {ex.Message}");
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Get payment status by Razorpay Order ID
+        /// </summary>
+        /// <param name="razorpayOrderId">Razorpay Order ID</param>
+        /// <returns>Payment status response</returns>
+        public async Task<Model.Order.PaymentStatusResponse> GetPaymentStatus(string razorpayOrderId)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Get payment status for Razorpay Order ID: {razorpayOrderId}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Model.Constant.Constant.StoredProcedures.SP_GET_PAYMENT_STATUS_BY_RAZORPAY_ORDER_ID,
+                    razorpayOrderId
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                {
+                    return new Model.Order.PaymentStatusResponse
+                    {
+                        RazorpayOrderId = razorpayOrderId,
+                        Message = "Payment status not found"
+                    };
+                }
+
+                var row = result.Tables[0].Rows[0];
+                var response = new Model.Order.PaymentStatusResponse
+                {
+                    RazorpayOrderId = GetColumnValue<string>(row, "RazorpayOrderId", razorpayOrderId),
+                    OrderId = GetColumnValue<long?>(row, "OrderId"),
+                    OrderNumber = GetColumnValue<string>(row, "OrderNumber"),
+                    PaymentStatus = GetColumnValue<string>(row, "PaymentStatus", "unknown"),
+                    OrderStatus = GetColumnValue<string>(row, "OrderStatus", "unknown"),
+                    Message = GetColumnValue<string>(row, "Message", "Payment status retrieved successfully")
+                };
+
+                this.Logger.LogInformation($"Repository: Payment status retrieved for Razorpay Order ID: {razorpayOrderId}, Status: {response.PaymentStatus}");
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Error getting payment status for Razorpay Order ID {razorpayOrderId}: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Helper method to get column value from DataRow with type conversion
+        /// </summary>
+        private static T GetColumnValue<T>(DataRow row, string columnName, T defaultValue = default)
+        {
+            if (row.Table.Columns.Contains(columnName) && row[columnName] != DBNull.Value)
+            {
+                var targetType = typeof(T);
+                if (targetType.IsGenericType && targetType.GetGenericTypeDefinition() == typeof(Nullable<>))
+                {
+                    targetType = Nullable.GetUnderlyingType(targetType);
+                }
+                return (T)Convert.ChangeType(row[columnName], targetType);
+            }
+            return defaultValue;
         }
 
         /// <summary>

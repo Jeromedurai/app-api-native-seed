@@ -14,15 +14,20 @@ using Tenant.API.Base.Model;
 using Tenant.Query.Model.User;
 using Tenant.Query.Model.Admin;
 using Tenant.Query.Service;
+using Tenant.Query.Service.Authentication;
+using Tenant.Query.Model.Authentication;
+using System.Security.Cryptography;
 
 namespace Tenant.Query.Controllers
 {
     [Route("api/user")]
     public class UserController : TnBaseController<Service.User.UserService>
     {
+        private readonly ILoggerFactory _loggerFactory;
+
         public UserController(Service.User.UserService service, IConfiguration configuration, ILoggerFactory loggerFactory) : base(service, configuration, loggerFactory)
         {
-
+            _loggerFactory = loggerFactory;
         }
 
         #region Get
@@ -168,6 +173,287 @@ namespace Tenant.Query.Controllers
             }
             catch (System.Exception ex)
             {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Get encryption key for client-side encryption
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [Route("encryption/key")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public IActionResult GetEncryptionKey()
+        {
+            try
+            {
+                var encryptionService = new EncryptionService(Configuration, _loggerFactory.CreateLogger<EncryptionService>());
+                var (key, nonce) = encryptionService.GenerateEncryptionKey();
+                
+                return Ok(new ApiResult
+                {
+                    Data = new EncryptionKeyResponse
+                    {
+                        Key = key,
+                        Nonce = nonce,
+                        ExpiresIn = 300 // 5 minutes
+                    }
+                });
+            }
+            catch (System.Exception ex)
+            {
+                Logger.LogError($"Error generating encryption key: {ex.Message}");
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Login with encrypted credentials
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [Route("auth/login-encrypted")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Unauthorized", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status423Locked, "Account Locked", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public async Task<IActionResult> LoginEncrypted([FromBody] EncryptedLoginRequest request)
+        {
+            try
+            {
+                if (request == null || string.IsNullOrEmpty(request.Ciphertext) || 
+                    string.IsNullOrEmpty(request.Nonce) || string.IsNullOrEmpty(request.Tag))
+                {
+                    return BadRequest(new ApiResult { Exception = "Invalid encrypted request" });
+                }
+
+                var encryptionService = new EncryptionService(Configuration, _loggerFactory.CreateLogger<EncryptionService>());
+                var loginRequest = encryptionService.DecryptLoginRequest(request.Ciphertext, request.Nonce, request.Tag);
+
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(new ApiResult { Exception = "Invalid request model" });
+                }
+
+                var loginResponse = await this.Service.Login(loginRequest);
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = loginResponse });
+            }
+            catch (CryptographicException ex)
+            {
+                Logger.LogWarning($"Decryption failed: {ex.Message}");
+                return BadRequest(new ApiResult { Exception = "Invalid encrypted payload" });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status401Unauthorized, new ApiResult { Exception = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return StatusCode(StatusCodes.Status423Locked, new ApiResult { Exception = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (System.Exception ex)
+            {
+                Logger.LogError($"Login error: {ex.Message}");
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Request password reset OTP
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [Route("auth/forgot-password")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public async Task<IActionResult> ForgotPassword([FromBody] Model.User.ForgotPasswordRequest request)
+        {
+            try
+            {
+                if (request == null || string.IsNullOrEmpty(request.Email))
+                {
+                    return BadRequest(new ApiResult { Exception = "Email is required" });
+                }
+
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                }
+
+                var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+                var userAgent = HttpContext.Request.Headers["User-Agent"].ToString();
+
+                var response = await this.Service.RequestPasswordReset(request, ipAddress, userAgent);
+
+                return Ok(new ApiResult { Data = response });
+            }
+            catch (ArgumentException ex)
+            {
+                Logger.LogWarning($"Invalid request: {ex.Message}");
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (System.Exception ex)
+            {
+                Logger.LogError($"Forgot password error: {ex.Message}");
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = "An error occurred while processing your request." });
+            }
+        }
+
+        /// <summary>
+        /// Reset password with OTP
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [Route("auth/reset-password-with-otp")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public async Task<IActionResult> ResetPasswordWithOtp([FromBody] Model.User.ResetPasswordWithOtpRequest request)
+        {
+            try
+            {
+                if (request == null)
+                {
+                    return BadRequest(new ApiResult { Exception = "Request is required" });
+                }
+
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                }
+
+                var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+                var userAgent = HttpContext.Request.Headers["User-Agent"].ToString();
+
+                var response = await this.Service.ResetPasswordWithOtp(request, ipAddress, userAgent);
+
+                return Ok(new ApiResult { Data = response });
+            }
+            catch (ArgumentException ex)
+            {
+                Logger.LogWarning($"Invalid request: {ex.Message}");
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (System.Exception ex)
+            {
+                Logger.LogError($"Reset password error: {ex.Message}");
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Resend password reset OTP
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [Route("auth/resend-reset-otp")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public async Task<IActionResult> ResendResetOtp([FromBody] Model.User.ForgotPasswordRequest request)
+        {
+            try
+            {
+                if (request == null || string.IsNullOrEmpty(request.Email))
+                {
+                    return BadRequest(new ApiResult { Exception = "Email is required" });
+                }
+
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                }
+
+                var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+                var userAgent = HttpContext.Request.Headers["User-Agent"].ToString();
+
+                var response = await this.Service.ResendResetOtp(request, ipAddress, userAgent);
+
+                return Ok(new ApiResult { Data = response });
+            }
+            catch (ArgumentException ex)
+            {
+                Logger.LogWarning($"Invalid request: {ex.Message}");
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (System.Exception ex)
+            {
+                Logger.LogError($"Resend OTP error: {ex.Message}");
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = "An error occurred while processing your request." });
+            }
+        }
+
+        /// <summary>
+        /// Register with encrypted credentials
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [Route("auth/register-encrypted")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status409Conflict, "Email or phone already exists", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public async Task<IActionResult> RegisterEncrypted([FromBody] EncryptedRegisterRequest request)
+        {
+            try
+            {
+                if (request == null || string.IsNullOrEmpty(request.Ciphertext) || 
+                    string.IsNullOrEmpty(request.Nonce) || string.IsNullOrEmpty(request.Tag))
+                {
+                    return BadRequest(new ApiResult { Exception = "Invalid encrypted request" });
+                }
+
+                var encryptionService = new EncryptionService(Configuration, _loggerFactory.CreateLogger<EncryptionService>());
+                var registerRequest = encryptionService.DecryptRegisterRequest(request.Ciphertext, request.Nonce, request.Tag);
+
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                }
+
+                var registerResponse = await this.Service.Register(registerRequest);
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = registerResponse });
+            }
+            catch (CryptographicException ex)
+            {
+                Logger.LogWarning($"Decryption failed: {ex.Message}");
+                return BadRequest(new ApiResult { Exception = "Invalid encrypted payload" });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return StatusCode(StatusCodes.Status409Conflict, new ApiResult { Exception = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (System.Exception ex)
+            {
+                Logger.LogError($"Registration error: {ex.Message}");
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
             }
         }

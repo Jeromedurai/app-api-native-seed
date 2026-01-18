@@ -882,6 +882,151 @@ namespace Tenant.Query.Repository.User
             }
         }
 
+        /// <summary>
+        /// Request password reset OTP
+        /// </summary>
+        public async Task<Model.User.ForgotPasswordResponse> RequestPasswordReset(Model.User.ForgotPasswordRequest request, string ipAddress = null, string userAgent = null)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Password reset requested for email: {request.Email}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Model.Constant.Constant.StoredProcedures.SP_REQUEST_PASSWORD_RESET,
+                    request.Email,
+                    ipAddress ?? (object)DBNull.Value,
+                    userAgent ?? (object)DBNull.Value
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                {
+                    throw new Exception("Failed to process password reset request");
+                }
+
+                var row = result.Tables[0].Rows[0];
+                var response = new Model.User.ForgotPasswordResponse
+                {
+                    Message = GetColumnValue<string>(row, "Message", "If email exists, OTP has been sent to your email address."),
+                    ExpiresInSeconds = GetColumnValue<int>(row, "ExpiresInSeconds", 600),
+                    UserId = GetColumnValue<long>(row, "UserId", 0),
+                    OTP = GetColumnValue<string>(row, "OTP", ""),
+                    Email = GetColumnValue<string>(row, "Email", request.Email),
+                    FirstName = GetColumnValue<string>(row, "FirstName", "")
+                };
+
+                this.Logger.LogInformation($"Repository: Password reset OTP generated for user: {response.UserId}");
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Error requesting password reset for {request.Email}: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Verify OTP and reset password
+        /// </summary>
+        public async Task<Model.User.ResetPasswordWithOtpResponse> ResetPasswordWithOtp(Model.User.ResetPasswordWithOtpRequest request, string ipAddress = null, string userAgent = null)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Password reset with OTP for email: {request.Email}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Model.Constant.Constant.StoredProcedures.SP_VERIFY_RESET_OTP,
+                    request.Email,
+                    request.OTP,
+                    request.NewPassword,
+                    ipAddress ?? (object)DBNull.Value,
+                    userAgent ?? (object)DBNull.Value
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                {
+                    throw new Exception("Failed to reset password");
+                }
+
+                var row = result.Tables[0].Rows[0];
+                var response = new Model.User.ResetPasswordWithOtpResponse
+                {
+                    UserId = GetColumnValue<long>(row, "UserId", 0),
+                    Message = GetColumnValue<string>(row, "Message", "Password reset successful"),
+                    ResetAt = GetColumnValue<DateTime>(row, "ResetAt", DateTime.UtcNow)
+                };
+
+                this.Logger.LogInformation($"Repository: Password reset successful for user: {response.UserId}");
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Error resetting password for {request.Email}: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Resend password reset OTP
+        /// </summary>
+        public async Task<Model.User.ForgotPasswordResponse> ResendResetOtp(Model.User.ForgotPasswordRequest request, string ipAddress = null, string userAgent = null)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Resending password reset OTP for email: {request.Email}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Model.Constant.Constant.StoredProcedures.SP_RESEND_RESET_OTP,
+                    request.Email,
+                    ipAddress ?? (object)DBNull.Value,
+                    userAgent ?? (object)DBNull.Value
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                {
+                    throw new Exception("Failed to resend password reset OTP");
+                }
+
+                var row = result.Tables[0].Rows[0];
+                var response = new Model.User.ForgotPasswordResponse
+                {
+                    Message = GetColumnValue<string>(row, "Message", "If email exists, OTP has been sent to your email address."),
+                    ExpiresInSeconds = GetColumnValue<int>(row, "ExpiresInSeconds", 600),
+                    UserId = GetColumnValue<long>(row, "UserId", 0),
+                    OTP = GetColumnValue<string>(row, "OTP", ""),
+                    Email = GetColumnValue<string>(row, "Email", request.Email),
+                    FirstName = GetColumnValue<string>(row, "FirstName", "")
+                };
+
+                this.Logger.LogInformation($"Repository: Password reset OTP resent for user: {response.UserId}");
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Error resending password reset OTP for {request.Email}: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Helper method to get column value with default
+        /// </summary>
+        private static T GetColumnValue<T>(DataRow row, string columnName, T defaultValue = default)
+        {
+            if (row.Table.Columns.Contains(columnName) && row[columnName] != DBNull.Value)
+            {
+                var targetType = typeof(T);
+                if (targetType.IsGenericType && targetType.GetGenericTypeDefinition() == typeof(Nullable<>))
+                {
+                    targetType = Nullable.GetUnderlyingType(targetType);
+                }
+                return (T)Convert.ChangeType(row[columnName], targetType);
+            }
+            return defaultValue;
+        }
+
         #endregion
     }
 }
