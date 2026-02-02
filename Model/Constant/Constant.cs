@@ -35,6 +35,7 @@
             public const string SP_ADD_IMAGES = "[dbo].[SP_ADD_IMAGE_LIST]";
             public const string SP_REMOVE_CART = "[dbo].[SP_REMOVE_CART]";
             public const string SP_REMOVE_WISHLIST = "[dbo].[SP_REMOVE_WISHLIST]";
+            public const string SP_CLEAR_WISHLIST = "[dbo].[SP_CLEAR_WISHLIST]";
             public const string SP_DELETE_IMAGES = "[dbo].[XC_DELETE_IMAGE_TESTED]";
             public const string SP_PRODUCT_CATEGORY_MAPPING = "[dbo].[SP_PRODUCT_CATEGORY_MAPPING]";
             public const string SP_UPSERT_WISHLIST = "[dbo].[SP_UPSERT_WISHLIST]";
@@ -111,6 +112,10 @@
             public const string SP_REQUEST_PASSWORD_RESET = "[dbo].[SP_REQUEST_PASSWORD_RESET]";
             public const string SP_VERIFY_RESET_OTP = "[dbo].[SP_VERIFY_RESET_OTP]";
             public const string SP_RESEND_RESET_OTP = "[dbo].[SP_RESEND_RESET_OTP]";
+            public const string SP_GET_APP_SETTINGS = "[dbo].[SP_GET_APP_SETTINGS]";
+            public const string SP_UPSERT_APP_SETTING = "[dbo].[SP_UPSERT_APP_SETTING]";
+            public const string SP_SEARCH_PRODUCTS_ENHANCED = "[dbo].[SP_SEARCH_PRODUCTS_ENHANCED]";
+            public const string SP_GET_SEARCH_SUGGESTIONS = "[dbo].[SP_GET_SEARCH_SUGGESTIONS]";
         }
 
         public static class AddressType

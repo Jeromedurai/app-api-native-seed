@@ -219,6 +219,10 @@ IF OBJECT_ID(N'[dbo].[SP_REMOVE_WISHLIST]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_REMOVE_WISHLIST];
 GO
 
+IF OBJECT_ID(N'[dbo].[SP_CLEAR_WISHLIST]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_CLEAR_WISHLIST];
+GO
+
 IF OBJECT_ID(N'[dbo].[SP_GET_USER_WISHLIST_ITEMS]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_GET_USER_WISHLIST_ITEMS];
 GO
@@ -305,6 +309,14 @@ GO
 
 IF OBJECT_ID(N'[dbo].[SP_DELETE_PRODUCT_IMAGE]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_DELETE_PRODUCT_IMAGE];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_SEARCH_PRODUCTS_ENHANCED]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_SEARCH_PRODUCTS_ENHANCED];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_GET_SEARCH_SUGGESTIONS]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_GET_SEARCH_SUGGESTIONS];
 GO
 
 CREATE PROCEDURE [dbo].[SP_DELETE_PRODUCT_IMAGE]
@@ -3442,6 +3454,124 @@ BEGIN
 		
 		-- Return 0 on error
 		SELECT 0 AS WishListId;
+		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+	END CATCH
+END
+GO
+
+-- =============================================
+-- SP_CLEAR_WISHLIST
+-- Clear entire wishlist for a user (soft delete by setting Active = 0 or hard delete)
+-- Returns result set with clearing statistics
+-- =============================================
+CREATE OR ALTER PROCEDURE [dbo].[SP_CLEAR_WISHLIST]
+	@UserId BIGINT,
+	@TenantId BIGINT = NULL,
+	@ClearCompletely BIT = 1,
+	@IpAddress NVARCHAR(45) = NULL,
+	@UserAgent NVARCHAR(500) = NULL
+AS
+BEGIN
+	SET NOCOUNT ON;
+	
+	BEGIN TRY
+		BEGIN TRANSACTION;
+		
+		DECLARE @WishlistItemCount INT = 0;
+		DECLARE @CurrentTime DATETIME = GETUTCDATE();
+		DECLARE @AffectedRows INT = 0;
+		
+		-- Validate user exists and is active
+		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		BEGIN
+			RAISERROR('User not found or inactive.', 16, 1);
+			RETURN;
+		END
+		
+		-- Get current wishlist statistics before clearing
+		SELECT 
+			@WishlistItemCount = COUNT(*)
+		FROM ProductWishList pw
+		INNER JOIN Products p ON pw.ProductId = p.ProductId
+		WHERE pw.UserId = @UserId 
+			AND pw.Active = 1
+			AND p.Active = 1
+			AND (@TenantId IS NULL OR pw.TenantId = @TenantId);
+		
+		-- Check if wishlist has any items
+		IF @WishlistItemCount = 0
+		BEGIN
+			RAISERROR('Wishlist is already empty.', 16, 1);
+			RETURN;
+		END
+		
+		-- Clear the wishlist based on strategy
+		IF @ClearCompletely = 1
+		BEGIN
+			-- Permanently delete all wishlist items
+			DELETE FROM ProductWishList 
+			WHERE UserId = @UserId 
+				AND Active = 1
+				AND (@TenantId IS NULL OR TenantId = @TenantId);
+			
+			SET @AffectedRows = @@ROWCOUNT;
+		END
+		ELSE
+		BEGIN
+			-- Mark all wishlist items as inactive (soft delete)
+			UPDATE ProductWishList
+			SET 
+				Active = 0,
+				UpdatedAt = @CurrentTime
+			WHERE UserId = @UserId 
+				AND Active = 1
+				AND (@TenantId IS NULL OR TenantId = @TenantId);
+			
+			SET @AffectedRows = @@ROWCOUNT;
+		END
+		
+		-- Verify that items were actually cleared
+		IF @AffectedRows = 0
+		BEGIN
+			RAISERROR('Failed to clear wishlist items.', 16, 1);
+			RETURN;
+		END
+		
+		-- Log the wishlist clearing activity
+		INSERT INTO UserActivityLog (
+			UserId,
+			ActivityType,
+			ActivityDescription,
+			IpAddress,
+			UserAgent,
+			CreatedAt
+		) VALUES (
+			@UserId,
+			'WISHLIST_CLEAR',
+			'Wishlist cleared - ' + CAST(@WishlistItemCount AS VARCHAR(10)) + ' items removed',
+			@IpAddress,
+			@UserAgent,
+			@CurrentTime
+		);
+		
+		-- Return clearing operation details
+		SELECT 
+			@UserId AS UserId,
+			@WishlistItemCount AS ClearedItemCount,
+			'Wishlist cleared successfully' AS Message,
+			@CurrentTime AS ClearedDate,
+			@ClearCompletely AS WasHardDelete;
+		
+		COMMIT TRANSACTION;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		
+		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+		DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+		DECLARE @ErrorState INT = ERROR_STATE();
+		
 		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
 	END CATCH
 END
@@ -6926,11 +7056,20 @@ BEGIN
         END;
         
         SET @MinCharge = @BaseCharge;
-        SET @FreeShippingThreshold = CASE 
-            WHEN @ProductType = 'Seed' THEN 1000
-            WHEN @ProductType = 'Plant' THEN 2000
-            ELSE 1500
-        END;
+        -- Get dynamic free delivery threshold from settings
+        SELECT @FreeShippingThreshold = CAST(SettingValue AS DECIMAL(18,2))
+        FROM AppSettings 
+        WHERE SettingKey = 'FREE_DELIVERY' AND Active = 1;
+        
+        -- Fallback to default if not found
+        IF @FreeShippingThreshold IS NULL
+        BEGIN
+            SET @FreeShippingThreshold = CASE 
+                WHEN @ProductType = 'Seed' THEN 1000
+                WHEN @ProductType = 'Plant' THEN 2000
+                ELSE 1500
+            END;
+        END
     END
     
     -- Calculate charge: Base + (Quantity × PerUnitCharge)
@@ -7005,8 +7144,15 @@ BEGIN
         ELSE 0
     END;
     
-    -- Check overall free shipping threshold (2000 is the standard threshold)
-    DECLARE @MaxThreshold DECIMAL(18,2) = 2000;
+    -- Get dynamic free delivery threshold from settings
+    DECLARE @MaxThreshold DECIMAL(18,2);
+    SELECT @MaxThreshold = CAST(SettingValue AS DECIMAL(18,2))
+    FROM AppSettings 
+    WHERE SettingKey = 'FREE_DELIVERY' AND Active = 1;
+    
+    -- Fallback to default if not found
+    IF @MaxThreshold IS NULL
+        SET @MaxThreshold = 2000;
     
     -- Free shipping applies ONLY if total subtotal meets the threshold
     IF @TotalSubtotal >= @MaxThreshold
@@ -7724,4 +7870,374 @@ BEGIN
 		@IpAddress = @IpAddress,
 		@UserAgent = @UserAgent
 END
+GO
+
+-- =============================================
+-- App Settings Table + Procedures
+-- =============================================
+IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[AppSettings]') AND type in (N'U'))
+BEGIN
+	CREATE TABLE [dbo].[AppSettings](
+		[SettingId] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+		[SettingKey] NVARCHAR(100) NOT NULL,
+		[SettingValue] NVARCHAR(255) NOT NULL,
+		[TenantId] BIGINT NULL,
+		[UserId] BIGINT NULL,
+		[Active] BIT NOT NULL DEFAULT(1),
+		[CreatedAt] DATETIME NOT NULL DEFAULT(GETDATE()),
+		[UpdatedAt] DATETIME NULL
+	);
+
+	CREATE UNIQUE INDEX UX_AppSettings_Key ON [dbo].[AppSettings]([SettingKey], [TenantId], [UserId]);
+END;
+GO
+
+IF OBJECT_ID('dbo.SP_GET_APP_SETTINGS', 'P') IS NOT NULL
+	DROP PROCEDURE dbo.SP_GET_APP_SETTINGS;
+GO
+CREATE PROCEDURE dbo.SP_GET_APP_SETTINGS
+	@TenantId BIGINT = NULL,
+	@UserId BIGINT = NULL
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	SELECT SettingKey, SettingValue, TenantId, UserId
+	FROM AppSettings
+	WHERE Active = 1
+	  AND (@TenantId IS NULL OR TenantId = @TenantId)
+	  AND (@UserId IS NULL OR UserId = @UserId)
+	ORDER BY SettingKey;
+END;
+GO
+
+IF OBJECT_ID('dbo.SP_UPSERT_APP_SETTING', 'P') IS NOT NULL
+	DROP PROCEDURE dbo.SP_UPSERT_APP_SETTING;
+GO
+CREATE PROCEDURE dbo.SP_UPSERT_APP_SETTING
+	@SettingKey NVARCHAR(100),
+	@SettingValue NVARCHAR(255),
+	@TenantId BIGINT = NULL,
+	@UserId BIGINT = NULL
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF EXISTS (
+		SELECT 1 FROM AppSettings
+		WHERE SettingKey = @SettingKey
+		  AND ISNULL(TenantId,0) = ISNULL(@TenantId,0)
+		  AND ISNULL(UserId,0) = ISNULL(@UserId,0)
+	)
+	BEGIN
+		UPDATE AppSettings
+		SET SettingValue = @SettingValue,
+			UpdatedAt = GETDATE()
+		WHERE SettingKey = @SettingKey
+		  AND ISNULL(TenantId,0) = ISNULL(@TenantId,0)
+		  AND ISNULL(UserId,0) = ISNULL(@UserId,0);
+	END
+	ELSE
+	BEGIN
+		INSERT INTO AppSettings (SettingKey, SettingValue, TenantId, UserId, Active)
+		VALUES (@SettingKey, @SettingValue, @TenantId, @UserId, 1);
+	END
+END;
+GO
+
+-- Seed defaults
+IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'MIN_ORDER')
+	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('MIN_ORDER', '300', 1);
+
+IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'FREE_DELIVERY')
+	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('FREE_DELIVERY', '1500', 1);
+GO
+
+-- =============================================
+-- ENHANCED PRODUCT SEARCH WITH ADVANCED FILTERS
+-- =============================================
+CREATE OR ALTER PROCEDURE [dbo].[SP_SEARCH_PRODUCTS_ENHANCED]
+	@TenantId BIGINT,
+	@Page INT = 1,
+	@Limit INT = 10,
+	@Offset INT = 0,
+	@Search NVARCHAR(255) = '',
+	@Category INT = NULL,
+	@MinPrice DECIMAL(18,2) = NULL,
+	@MaxPrice DECIMAL(18,2) = NULL,
+	@Rating INT = NULL,
+	@InStock BIT = NULL,
+	@BestSeller BIT = NULL,
+	@HasOffer BIT = NULL,
+	@NewArrivalsDays INT = NULL,      -- 7 or 30 for new arrivals filter
+	@Trending BIT = NULL,             -- Filter trending products (high UserBuyCount)
+	@TrendingThreshold INT = 10,      -- Min UserBuyCount for trending
+	@FuzzySearch BIT = 0,             -- Enable fuzzy/typo-tolerant search
+	@SortBy NVARCHAR(50) = 'relevance',
+	@SortOrder NVARCHAR(10) = 'desc'
+AS
+BEGIN
+	SET NOCOUNT ON;
+	
+	-- Create temp table for search results with relevance scoring
+	CREATE TABLE #SearchResults (
+		ProductId BIGINT,
+		RelevanceScore INT DEFAULT 0,
+		NameMatchPos INT DEFAULT 0,       -- Position of match in name (for highlighting)
+		DescMatchPos INT DEFAULT 0        -- Position of match in description
+	);
+	
+	DECLARE @TotalCount INT = 0;
+	DECLARE @SearchTerm NVARCHAR(255) = LTRIM(RTRIM(ISNULL(@Search, '')));
+	
+	-- Insert all products that match base criteria
+	INSERT INTO #SearchResults (ProductId, RelevanceScore, NameMatchPos, DescMatchPos)
+	SELECT 
+		p.ProductId,
+		-- Calculate relevance score
+		CASE 
+			-- Exact name match (highest priority)
+			WHEN @SearchTerm != '' AND p.ProductName = @SearchTerm THEN 100
+			-- Name starts with search term
+			WHEN @SearchTerm != '' AND p.ProductName LIKE @SearchTerm + '%' THEN 80
+			-- Name contains search term
+			WHEN @SearchTerm != '' AND p.ProductName LIKE '%' + @SearchTerm + '%' THEN 60
+			-- Product code exact match
+			WHEN @SearchTerm != '' AND p.ProductCode = @SearchTerm THEN 70
+			-- Description contains search term
+			WHEN @SearchTerm != '' AND p.ProductDescription LIKE '%' + @SearchTerm + '%' THEN 40
+			-- MetaKeywords contains search term
+			WHEN @SearchTerm != '' AND p.MetaKeywords LIKE '%' + @SearchTerm + '%' THEN 30
+			-- Fuzzy match on name (SOUNDEX)
+			WHEN @FuzzySearch = 1 AND @SearchTerm != '' AND DIFFERENCE(p.ProductName, @SearchTerm) >= 3 THEN 20
+			ELSE 0
+		END +
+		-- Boost for popular products
+		CASE WHEN p.UserBuyCount > 50 THEN 10 
+			 WHEN p.UserBuyCount > 20 THEN 5 
+			 ELSE 0 END +
+		-- Boost for best sellers
+		CASE WHEN p.BestSeller = 1 THEN 5 ELSE 0 END +
+		-- Boost for products with offers
+		CASE WHEN p.Offer IS NOT NULL AND p.Offer != '' THEN 3 ELSE 0 END
+		AS RelevanceScore,
+		-- Find match position in name for highlighting
+		CASE WHEN @SearchTerm != '' THEN CHARINDEX(@SearchTerm, p.ProductName) ELSE 0 END,
+		-- Find match position in description for highlighting
+		CASE WHEN @SearchTerm != '' THEN CHARINDEX(@SearchTerm, p.ProductDescription) ELSE 0 END
+	FROM Products p
+	WHERE p.TenantId = @TenantId
+		AND p.Active = 1
+		-- Text search filter (includes fuzzy)
+		AND (
+			@SearchTerm = ''
+			OR p.ProductName LIKE '%' + @SearchTerm + '%'
+			OR p.ProductDescription LIKE '%' + @SearchTerm + '%'
+			OR p.ProductCode LIKE '%' + @SearchTerm + '%'
+			OR p.MetaKeywords LIKE '%' + @SearchTerm + '%'
+			OR (@FuzzySearch = 1 AND DIFFERENCE(p.ProductName, @SearchTerm) >= 3)
+			OR (@FuzzySearch = 1 AND DIFFERENCE(p.ProductCode, @SearchTerm) >= 3)
+		)
+		-- Category filter
+		AND (@Category IS NULL OR p.Category = @Category)
+		-- Price range filter
+		AND (@MinPrice IS NULL OR p.Price >= @MinPrice)
+		AND (@MaxPrice IS NULL OR p.Price <= @MaxPrice)
+		-- Rating filter
+		AND (@Rating IS NULL OR p.Rating >= @Rating)
+		-- Stock filter
+		AND (@InStock IS NULL OR (@InStock = 1 AND p.Quantity > 0) OR (@InStock = 0 AND p.Quantity = 0))
+		-- Best seller filter
+		AND (@BestSeller IS NULL OR @BestSeller = 0 OR p.BestSeller = 1)
+		-- Has offer filter
+		AND (@HasOffer IS NULL OR @HasOffer = 0 OR (p.Offer IS NOT NULL AND p.Offer != ''))
+		-- New arrivals filter (products created within X days)
+		AND (@NewArrivalsDays IS NULL OR p.Created >= DATEADD(DAY, -@NewArrivalsDays, GETUTCDATE()))
+		-- Trending filter (products with high purchase count)
+		AND (@Trending IS NULL OR @Trending = 0 OR p.UserBuyCount >= @TrendingThreshold);
+	
+	-- Get total count
+	SELECT @TotalCount = COUNT(*) FROM #SearchResults;
+	
+	-- Return paginated results with full product data
+	SELECT 
+		p.ProductId,
+		p.TenantId,
+		p.ProductName,
+		p.ProductDescription,
+		p.ProductCode,
+		p.FullDescription,
+		p.Specification,
+		p.Story,
+		p.PackQuantity,
+		p.Quantity,
+		p.Total,
+		p.Price,
+		p.Category,
+		p.Rating,
+		p.Active,
+		p.Trending,
+		p.UserBuyCount,
+		p.[Return],
+		p.Created,
+		p.Modified,
+		CASE WHEN p.Quantity > 0 THEN 1 ELSE 0 END as InStock,
+		p.BestSeller,
+		p.DeliveryDate,
+		p.Offer,
+		p.OrderBy,
+		p.UserId,
+		p.Overview,
+		p.LongDescription,
+		p.OriginalPrice,
+		p.DiscountPercentage,
+		p.MetaKeywords,
+		sr.RelevanceScore,
+		sr.NameMatchPos,
+		sr.DescMatchPos
+	FROM #SearchResults sr
+	INNER JOIN Products p ON sr.ProductId = p.ProductId
+	ORDER BY
+		CASE WHEN @SortBy = 'relevance' AND @SortOrder = 'desc' THEN sr.RelevanceScore END DESC,
+		CASE WHEN @SortBy = 'relevance' AND @SortOrder = 'asc' THEN sr.RelevanceScore END ASC,
+		CASE WHEN @SortBy = 'productName' AND @SortOrder = 'asc' THEN p.ProductName END ASC,
+		CASE WHEN @SortBy = 'productName' AND @SortOrder = 'desc' THEN p.ProductName END DESC,
+		CASE WHEN @SortBy = 'price' AND @SortOrder = 'asc' THEN p.Price END ASC,
+		CASE WHEN @SortBy = 'price' AND @SortOrder = 'desc' THEN p.Price END DESC,
+		CASE WHEN @SortBy = 'rating' AND @SortOrder = 'desc' THEN p.Rating END DESC,
+		CASE WHEN @SortBy = 'rating' AND @SortOrder = 'asc' THEN p.Rating END ASC,
+		CASE WHEN @SortBy = 'userBuyCount' AND @SortOrder = 'desc' THEN p.UserBuyCount END DESC,
+		CASE WHEN @SortBy = 'userBuyCount' AND @SortOrder = 'asc' THEN p.UserBuyCount END ASC,
+		CASE WHEN @SortBy = 'created' AND @SortOrder = 'desc' THEN p.Created END DESC,
+		CASE WHEN @SortBy = 'created' AND @SortOrder = 'asc' THEN p.Created END ASC,
+		CASE WHEN @SortBy = 'bestSeller' THEN p.BestSeller END DESC,
+		-- Default fallback: sort by relevance and name
+		sr.RelevanceScore DESC,
+		p.ProductName ASC
+	OFFSET @Offset ROWS
+	FETCH NEXT @Limit ROWS ONLY;
+	
+	-- Return pagination metadata
+	SELECT 
+		@TotalCount AS TotalCount,
+		@Page AS CurrentPage,
+		@Limit AS PageSize,
+		CEILING(CAST(@TotalCount AS FLOAT) / @Limit) AS TotalPages,
+		CASE WHEN @Page < CEILING(CAST(@TotalCount AS FLOAT) / @Limit) THEN 1 ELSE 0 END AS HasNext,
+		CASE WHEN @Page > 1 THEN 1 ELSE 0 END AS HasPrevious;
+	
+	DROP TABLE #SearchResults;
+END;
+GO
+
+-- =============================================
+-- SEARCH SUGGESTIONS FOR AUTOCOMPLETE
+-- =============================================
+CREATE OR ALTER PROCEDURE [dbo].[SP_GET_SEARCH_SUGGESTIONS]
+	@TenantId BIGINT,
+	@Query NVARCHAR(100),
+	@Limit INT = 8
+AS
+BEGIN
+	SET NOCOUNT ON;
+	
+	DECLARE @SearchTerm NVARCHAR(100) = LTRIM(RTRIM(ISNULL(@Query, '')));
+	
+	IF @SearchTerm = '' OR LEN(@SearchTerm) < 2
+	BEGIN
+		-- Return empty result if query too short
+		SELECT TOP 0 
+			'' AS SuggestionText,
+			'' AS SuggestionType,
+			0 AS ProductId,
+			0 AS CategoryId,
+			0 AS MatchScore;
+		RETURN;
+	END
+	
+	-- Create temp table for all suggestions
+	CREATE TABLE #Suggestions (
+		SuggestionText NVARCHAR(255),
+		SuggestionType NVARCHAR(20),  -- 'product', 'category', 'keyword'
+		ProductId BIGINT NULL,
+		CategoryId BIGINT NULL,
+		MatchScore INT,
+		ImageUrl NVARCHAR(500) NULL,
+		Price DECIMAL(18,2) NULL
+	);
+	
+	-- Insert matching product names
+	INSERT INTO #Suggestions (SuggestionText, SuggestionType, ProductId, CategoryId, MatchScore, Price)
+	SELECT TOP (@Limit)
+		p.ProductName,
+		'product',
+		p.ProductId,
+		p.Category,
+		CASE
+			WHEN p.ProductName LIKE @SearchTerm + '%' THEN 100  -- Starts with
+			WHEN p.ProductName LIKE '%' + @SearchTerm + '%' THEN 80  -- Contains
+			ELSE 50
+		END +
+		CASE WHEN p.BestSeller = 1 THEN 10 ELSE 0 END +
+		CASE WHEN p.UserBuyCount > 10 THEN 5 ELSE 0 END,
+		p.Price
+	FROM Products p
+	WHERE p.TenantId = @TenantId
+		AND p.Active = 1
+		AND p.Quantity > 0
+		AND (
+			p.ProductName LIKE '%' + @SearchTerm + '%'
+			OR p.ProductCode LIKE @SearchTerm + '%'
+		)
+	ORDER BY
+		CASE WHEN p.ProductName LIKE @SearchTerm + '%' THEN 0 ELSE 1 END,
+		p.UserBuyCount DESC;
+	
+	-- Insert matching category names
+	INSERT INTO #Suggestions (SuggestionText, SuggestionType, ProductId, CategoryId, MatchScore)
+	SELECT TOP 3
+		c.CategoryName,
+		'category',
+		NULL,
+		c.CategoryId,
+		CASE
+			WHEN c.CategoryName LIKE @SearchTerm + '%' THEN 90
+			ELSE 70
+		END
+	FROM Categories c
+	WHERE c.TenantId = @TenantId
+		AND c.Active = 1
+		AND c.CategoryName LIKE '%' + @SearchTerm + '%';
+	
+	-- Insert matching keywords from MetaKeywords
+	INSERT INTO #Suggestions (SuggestionText, SuggestionType, ProductId, CategoryId, MatchScore)
+	SELECT TOP 3
+		LTRIM(RTRIM(value)) AS Keyword,
+		'keyword',
+		NULL,
+		NULL,
+		60
+	FROM Products p
+	CROSS APPLY STRING_SPLIT(p.MetaKeywords, ',')
+	WHERE p.TenantId = @TenantId
+		AND p.Active = 1
+		AND p.MetaKeywords IS NOT NULL
+		AND LTRIM(RTRIM(value)) LIKE '%' + @SearchTerm + '%'
+		AND LEN(LTRIM(RTRIM(value))) > 2
+	GROUP BY LTRIM(RTRIM(value));
+	
+	-- Return deduplicated results ordered by score
+	SELECT TOP (@Limit)
+		SuggestionText,
+		SuggestionType,
+		ProductId,
+		CategoryId,
+		MatchScore,
+		Price
+	FROM #Suggestions
+	GROUP BY SuggestionText, SuggestionType, ProductId, CategoryId, MatchScore, Price
+	ORDER BY MatchScore DESC, SuggestionText;
+	
+	DROP TABLE #Suggestions;
+END;
 GO

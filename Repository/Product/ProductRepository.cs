@@ -15,6 +15,7 @@ using Microsoft.CodeAnalysis;
 using Tenant.Query.Uitility;
 using SixLabors.ImageSharp;
 using Tenant.Query.Model.WishList;
+using Tenant.Query.Model.Settings;
 using Tenant.Query.Model.ProductCart;
 using Tenant.Query.Model.Constant;
 using Tenant.API.Base.Model.Validation;
@@ -724,6 +725,42 @@ namespace Tenant.Query.Repository.Product
             }
         }
 
+        public List<AppSettingItem> GetAppSettings(long? tenantId, long? userId)
+        {
+            try
+            {
+                var settings = _dataAccess.ExecuteGenericList<AppSettingItem>(
+                    Constant.StoredProcedures.SP_GET_APP_SETTINGS,
+                    tenantId ?? (object)DBNull.Value,
+                    userId ?? (object)DBNull.Value
+                );
+
+                return settings ?? new List<AppSettingItem>();
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        public void UpsertAppSetting(AppSettingItem setting, long? tenantId, long? userId)
+        {
+            try
+            {
+                _dataAccess.ExecuteNonQuery(
+                    Constant.StoredProcedures.SP_UPSERT_APP_SETTING,
+                    setting.SettingKey,
+                    setting.SettingValue,
+                    tenantId ?? (object)DBNull.Value,
+                    userId ?? (object)DBNull.Value
+                );
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
         /// <summary>
         /// Delete a product
         /// </summary>
@@ -1166,6 +1203,98 @@ namespace Tenant.Query.Repository.Product
         }
 
         /// <summary>
+        /// Enhanced search with full-text, fuzzy matching, and advanced filters
+        /// </summary>
+        public DataSet SearchProductsEnhanced(string tenantId, EnhancedProductSearchPayload payload, int offset)
+        {
+            try
+            {
+                DataSet result = _dataAccess.ExecuteDataset(
+                    Constant.StoredProcedures.SP_SEARCH_PRODUCTS_ENHANCED,
+                    Convert.ToInt64(tenantId),
+                    payload.Page,
+                    payload.Limit,
+                    offset,
+                    payload.Search ?? string.Empty,
+                    payload.Category,
+                    payload.MinPrice,
+                    payload.MaxPrice,
+                    payload.Rating,
+                    payload.InStock,
+                    payload.BestSeller,
+                    payload.HasOffer,
+                    payload.NewArrivalsDays,
+                    payload.Trending,
+                    payload.TrendingThreshold,
+                    payload.FuzzySearch ? 1 : 0,
+                    payload.SortBy ?? "relevance",
+                    payload.SortOrder ?? "desc"
+                );
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError(ex, "Error in enhanced product search");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Get search suggestions for autocomplete
+        /// </summary>
+        public SearchSuggestionResponse GetSearchSuggestions(SearchSuggestionRequest request)
+        {
+            var response = new SearchSuggestionResponse
+            {
+                Query = request.Query,
+                Success = true
+            };
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(request.Query) || request.Query.Length < 2)
+                {
+                    response.Message = "Query too short";
+                    return response;
+                }
+
+                DataSet result = _dataAccess.ExecuteDataset(
+                    Constant.StoredProcedures.SP_GET_SEARCH_SUGGESTIONS,
+                    request.TenantId,
+                    request.Query,
+                    request.Limit
+                );
+
+                if (result?.Tables.Count > 0 && result.Tables[0].Rows.Count > 0)
+                {
+                    foreach (DataRow row in result.Tables[0].Rows)
+                    {
+                        response.Suggestions.Add(new SearchSuggestion
+                        {
+                            SuggestionText = row["SuggestionText"]?.ToString() ?? string.Empty,
+                            SuggestionType = row["SuggestionType"]?.ToString() ?? "product",
+                            ProductId = row["ProductId"] != DBNull.Value ? Convert.ToInt64(row["ProductId"]) : null,
+                            CategoryId = row["CategoryId"] != DBNull.Value ? Convert.ToInt64(row["CategoryId"]) : null,
+                            MatchScore = row["MatchScore"] != DBNull.Value ? Convert.ToInt32(row["MatchScore"]) : 0,
+                            Price = row["Price"] != DBNull.Value ? Convert.ToDecimal(row["Price"]) : null
+                        });
+                    }
+                }
+
+                response.Message = $"Found {response.Suggestions.Count} suggestions";
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError(ex, "Error getting search suggestions for: {Query}", request.Query);
+                response.Success = false;
+                response.Message = "Error retrieving suggestions";
+            }
+
+            return response;
+        }
+
+        /// <summary>
         /// Get user's shopping cart with full product details
         /// </summary>
         /// <param name="request">Cart request with user details</param>
@@ -1387,6 +1516,7 @@ namespace Tenant.Query.Repository.Product
                             WishlistItemId = row["WishListId"] != DBNull.Value ? Convert.ToInt64(row["WishListId"]) : 0,
                             WishlistId = row["WishListId"] != DBNull.Value ? Convert.ToInt64(row["WishListId"]) : 0,
                             ProductId = row["ProductId"] != DBNull.Value ? Convert.ToInt64(row["ProductId"]) : 0,
+                            TenantId = row["TenantId"] != DBNull.Value ? Convert.ToInt64(row["TenantId"]) : 0,
                             Quantity = 1,
                             Priority = row["Priority"] != DBNull.Value ? Convert.ToInt32(row["Priority"]) : 3,
                             Notes = row["Notes"]?.ToString() ?? "",
@@ -1770,6 +1900,70 @@ namespace Tenant.Query.Repository.Product
                 else if (ex.Message.Contains("Cart is already empty"))
                 {
                     throw new KeyNotFoundException("Cart is already empty");
+                }
+                
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Clear entire wishlist
+        /// </summary>
+        /// <param name="tenantId">Tenant ID</param>
+        /// <param name="request">Clear wishlist request</param>
+        /// <returns>Wishlist clearing confirmation and statistics</returns>
+        public async Task<Model.WishList.ClearWishlistResponse> ClearWishlist(long tenantId, Model.WishList.ClearWishlistRequest request)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Clear wishlist for user {request.UserId}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Model.Constant.Constant.StoredProcedures.SP_CLEAR_WISHLIST,
+                    request.UserId,
+                    request.TenantId.HasValue ? request.TenantId.Value.ToString() : (object)DBNull.Value,
+                    request.ClearCompletely,
+                    request.IpAddress ?? (object)DBNull.Value,
+                    request.UserAgent ?? (object)DBNull.Value
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                {
+                    throw new KeyNotFoundException("User not found or wishlist is already empty");
+                }
+
+                // Process clear wishlist result
+                var clearRow = result.Tables[0].Rows[0];
+                var clearResponse = new Model.WishList.ClearWishlistResponse
+                {
+                    UserId = clearRow["UserId"] != DBNull.Value ? Convert.ToInt64(clearRow["UserId"]) : 0,
+                    ClearedItemCount = clearRow["ClearedItemCount"] != DBNull.Value ? Convert.ToInt32(clearRow["ClearedItemCount"]) : 0,
+                    Message = clearRow["Message"]?.ToString() ?? "Wishlist cleared successfully",
+                    ClearedDate = clearRow["ClearedDate"] != DBNull.Value ? Convert.ToDateTime(clearRow["ClearedDate"]) : DateTime.MinValue,
+                    WasHardDelete = clearRow["WasHardDelete"] != DBNull.Value ? Convert.ToBoolean(clearRow["WasHardDelete"]) : false
+                };
+
+                this.Logger.LogInformation($"Repository: Wishlist cleared successfully for user {request.UserId} - {clearResponse.ClearedItemCount} items cleared");
+
+                return clearResponse;
+            }
+            catch (KeyNotFoundException)
+            {
+                this.Logger.LogWarning($"Repository: Clear wishlist failed - user not found or wishlist already empty: {request?.UserId}");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Clear wishlist error for user {request?.UserId}: {ex.Message}");
+                
+                // Check for specific error messages from stored procedure
+                if (ex.Message.Contains("User not found or inactive"))
+                {
+                    throw new KeyNotFoundException("User not found or inactive");
+                }
+                else if (ex.Message.Contains("Wishlist is already empty"))
+                {
+                    throw new KeyNotFoundException("Wishlist is already empty");
                 }
                 
                 throw;

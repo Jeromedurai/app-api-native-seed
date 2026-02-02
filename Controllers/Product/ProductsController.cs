@@ -15,6 +15,7 @@ using Tenant.API.Base.Model;
 using Tenant.Query.Model.Product;
 using Tenant.Query.Model.ProductCart;
 using Tenant.Query.Model.WishList;
+using Tenant.Query.Model.Settings;
 using Tenant.Query.Service.Product;
 using Exception = System.Exception;
 
@@ -351,6 +352,246 @@ namespace Tenant.Query.Controllers.Product
         }
 
         /// <summary>
+        /// Get application settings (admin)
+        /// </summary>
+        [HttpGet]
+        [Route("settings")]
+        public IActionResult GetAppSettings([FromQuery] long? tenantId = null, [FromQuery] long? userId = null)
+        {
+            try
+            {
+                var result = this.Service.GetAppSettings(tenantId, userId);
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Save application settings (admin)
+        /// </summary>
+        [HttpPost]
+        [Route("settings")]
+        public IActionResult SaveAppSettings([FromBody] SaveAppSettingsRequest request)
+        {
+            try
+            {
+                if (request == null || request.Settings == null || request.Settings.Count == 0)
+                {
+                    return BadRequest(new ApiResult { Exception = "Settings payload is required" });
+                }
+
+                var result = this.Service.SaveAppSettings(request);
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Get product sliders for dashboard (New, Sale, Recommended)
+        /// </summary>
+        /// <param name="tenantId">Tenant ID</param>
+        /// <param name="limit">Number of products per category (default: 8)</param>
+        /// <returns>Products grouped by category</returns>
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [AllowAnonymous]
+        [HttpGet]
+        [Route("tenants/{tenantId:long}/product-sliders")]
+        public async Task<IActionResult> GetProductSliders([FromRoute] long tenantId, [FromQuery] int limit = 8)
+        {
+            try
+            {
+                if (limit < 1 || limit > 20)
+                {
+                    limit = 8;
+                }
+
+                // Get New Products (recently added, sorted by created date)
+                var newProductsPayload = new ProductSearchPayload
+                {
+                    Page = 1,
+                    Limit = limit,
+                    SortBy = "created",
+                    SortOrder = "desc",
+                    Search = "",
+                    MinPrice = null,
+                    MaxPrice = null
+                };
+                var newProductsResult = await this.Service.SearchProductsAsync(tenantId.ToString(), newProductsPayload);
+
+                // Get Sale Products (products with offers)
+                var saleProductsPayload = new ProductSearchPayload
+                {
+                    Page = 1,
+                    Limit = limit,
+                    SortBy = "price",
+                    SortOrder = "asc",
+                    Search = "",
+                    HasOffer = true,
+                    MinPrice = null,
+                    MaxPrice = null
+                };
+                var saleProductsResult = await this.Service.SearchProductsAsync(tenantId.ToString(), saleProductsPayload);
+
+                // Get Recommended Products (best sellers / highly rated)
+                var recommendedProductsPayload = new ProductSearchPayload
+                {
+                    Page = 1,
+                    Limit = limit,
+                    SortBy = "rating",
+                    SortOrder = "desc",
+                    Search = "",
+                    BestSeller = true,
+                    MinPrice = null,
+                    MaxPrice = null
+                };
+                var recommendedProductsResult = await this.Service.SearchProductsAsync(tenantId.ToString(), recommendedProductsPayload);
+
+                // Helper function to process images using Url.ActionLink for proper URL generation
+                void ProcessProductImages(ProductSearchResponse result)
+                {
+                    if (result?.Products != null)
+                    {
+                        foreach (var product in result.Products)
+                        {
+                            if (product.Images != null)
+                            {
+                                foreach (var image in product.Images)
+                                {
+                                    // Generate proper URLs using Url.ActionLink
+                                    image.ImageUrl = Url.ActionLink("GetImage", "Products", new { id = image.ImageId }) ?? "";
+                                    image.ThumbnailUrl = Url.ActionLink("GetThumbnail", "Products", new { id = image.ImageId }) ?? "";
+                                    if (string.IsNullOrEmpty(image.Poster))
+                                    {
+                                        image.Poster = image.ImageUrl;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ProcessProductImages(newProductsResult);
+                ProcessProductImages(saleProductsResult);
+                ProcessProductImages(recommendedProductsResult);
+
+                var result = new
+                {
+                    newProducts = newProductsResult?.Products ?? new List<ProductDetailItem>(),
+                    saleProducts = saleProductsResult?.Products ?? new List<ProductDetailItem>(),
+                    recommendedProducts = recommendedProductsResult?.Products ?? new List<ProductDetailItem>()
+                };
+
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Get featured products by category (new, sale, recommended)
+        /// </summary>
+        /// <param name="tenantId">Tenant ID</param>
+        /// <param name="category">Category type: new, sale, recommended</param>
+        /// <param name="limit">Number of products (default: 10)</param>
+        /// <returns>Featured products for specified category</returns>
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [AllowAnonymous]
+        [HttpGet]
+        [Route("tenants/{tenantId:long}/featured-products")]
+        public async Task<IActionResult> GetFeaturedProducts(
+            [FromRoute] long tenantId, 
+            [FromQuery] string category = "new", 
+            [FromQuery] int limit = 10)
+        {
+            try
+            {
+                if (limit < 1 || limit > 50)
+                {
+                    limit = 10;
+                }
+
+                var validCategories = new[] { "new", "sale", "recommended" };
+                if (!validCategories.Contains(category?.ToLower()))
+                {
+                    category = "new";
+                }
+
+                var payload = new ProductSearchPayload
+                {
+                    Page = 1,
+                    Limit = limit,
+                    Search = "",
+                    MinPrice = null,
+                    MaxPrice = null
+                };
+
+                // Configure payload based on category
+                switch (category.ToLower())
+                {
+                    case "new":
+                        payload.SortBy = "created";
+                        payload.SortOrder = "desc";
+                        break;
+                    case "sale":
+                        payload.SortBy = "price";
+                        payload.SortOrder = "asc";
+                        payload.HasOffer = true;
+                        break;
+                    case "recommended":
+                        payload.SortBy = "rating";
+                        payload.SortOrder = "desc";
+                        payload.BestSeller = true;
+                        break;
+                }
+
+                var searchResult = await this.Service.SearchProductsAsync(tenantId.ToString(), payload);
+
+                // Generate full URLs for all product images using Url.ActionLink
+                if (searchResult?.Products != null)
+                {
+                    foreach (var product in searchResult.Products)
+                    {
+                        if (product.Images != null)
+                        {
+                            foreach (var image in product.Images)
+                            {
+                                image.ImageUrl = Url.ActionLink("GetImage", "Products", new { id = image.ImageId }) ?? "";
+                                image.ThumbnailUrl = Url.ActionLink("GetThumbnail", "Products", new { id = image.ImageId }) ?? "";
+                                if (string.IsNullOrEmpty(image.Poster))
+                                {
+                                    image.Poster = image.ImageUrl;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                var result = new
+                {
+                    products = searchResult?.Products ?? new List<ProductDetailItem>(),
+                    category = category,
+                    total = searchResult?.Pagination?.Total ?? 0
+                };
+
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
         /// Generate image url
         /// </summary>
         /// <param name="image"></param>
@@ -579,6 +820,113 @@ namespace Tenant.Query.Controllers.Product
             catch (ArgumentException ex)
             {
                 return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Enhanced product search with full-text, fuzzy matching, and advanced filters
+        /// </summary>
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [AllowAnonymous]
+        [HttpPost]
+        [Route("tenants/{tenantId}/search-products-enhanced")]
+        public async Task<IActionResult> SearchProductsEnhanced([FromRoute] string tenantId, [FromBody] EnhancedProductSearchPayload payload)
+        {
+            try
+            {
+                if (payload == null)
+                {
+                    return BadRequest(new ApiResult { Exception = "Payload cannot be null" });
+                }
+
+                // Validate pagination parameters
+                if (payload.Page < 1) payload.Page = 1;
+                if (payload.Limit < 1 || payload.Limit > 100) payload.Limit = 10;
+
+                // Validate sort parameters - include 'relevance' for enhanced search
+                var validSortFields = new[] { "productName", "price", "rating", "userBuyCount", "created", "relevance" };
+                if (!validSortFields.Contains(payload.SortBy?.ToLower() ?? "relevance"))
+                {
+                    payload.SortBy = "relevance";
+                }
+
+                var validSortOrders = new[] { "asc", "desc" };
+                if (!validSortOrders.Contains(payload.SortOrder?.ToLower() ?? "desc"))
+                {
+                    payload.SortOrder = "desc";
+                }
+
+                var result = await this.Service.SearchProductsEnhancedAsync(tenantId, payload);
+
+                // Generate full URLs for all product images
+                if (result?.Products != null)
+                {
+                    foreach (var product in result.Products)
+                    {
+                        if (product.Images != null)
+                        {
+                            foreach (var image in product.Images)
+                            {
+                                var request = HttpContext.Request;
+                                var baseUrl = $"{request.Scheme}://{request.Host}";
+                                image.ImageUrl = $"{baseUrl}/api/1.0/products/{image.ImageId}";
+                                image.ThumbnailUrl = $"{baseUrl}/api/1.0/products/{image.ImageId}/thumbnail";
+                                if (string.IsNullOrEmpty(image.Poster))
+                                {
+                                    image.Poster = image.ImageUrl;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Get search suggestions for autocomplete
+        /// </summary>
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [AllowAnonymous]
+        [HttpGet]
+        [Route("tenants/{tenantId}/search/suggestions")]
+        public IActionResult GetSearchSuggestions([FromRoute] long tenantId, [FromQuery] string query, [FromQuery] int limit = 8)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(query))
+                {
+                    return Ok(new ApiResult { Data = new SearchSuggestionResponse { Success = true, Suggestions = new List<SearchSuggestion>() } });
+                }
+
+                if (limit < 1 || limit > 20) limit = 8;
+
+                var request = new SearchSuggestionRequest
+                {
+                    TenantId = tenantId,
+                    Query = query.Trim(),
+                    Limit = limit
+                };
+
+                var result = this.Service.GetSearchSuggestions(request);
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
             }
             catch (Exception ex)
             {
@@ -1308,6 +1656,102 @@ namespace Tenant.Query.Controllers.Product
             catch (Exception ex)
             {
                 Logger.LogError($"Controller: Error getting wishlist items: {ex.Message}", ex);
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Clear entire wishlist for a user
+        /// </summary>
+        /// <param name="userId">User ID from route</param>
+        /// <param name="tenantId">Tenant ID (optional query parameter)</param>
+        /// <returns>Wishlist clearing confirmation and statistics</returns>
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status404NotFound, "User not found or wishlist is empty", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [HttpDelete]
+        [Route("wishlist/{userId:long}/clear")]
+        public async Task<IActionResult> ClearWishlist([FromRoute] long userId, [FromQuery] long? tenantId = null)
+        {
+            try
+            {
+                Logger.LogInformation($"Controller: ClearWishlist called - userId: {userId}, tenantId: {tenantId}");
+
+                if (userId <= 0)
+                {
+                    Logger.LogWarning($"Controller: Invalid UserId: {userId}");
+                    return BadRequest(new ApiResult { Exception = "Valid User ID is required" });
+                }
+
+                // If tenantId not provided, try to get it from user's wishlist items or use default
+                if (!tenantId.HasValue || tenantId.Value <= 0)
+                {
+                    try
+                    {
+                        // Try to get tenantId from user's wishlist items (try common tenant IDs)
+                        long[] commonTenantIds = { 1, 2, 3 };
+                        foreach (var tid in commonTenantIds)
+                        {
+                            try
+                            {
+                                var wishlistData = await productService.GetUserWishlistItems(userId, tid);
+                                if (wishlistData?.Items != null && wishlistData.Items.Any())
+                                {
+                                    tenantId = wishlistData.Items.First().TenantId;
+                                    Logger.LogInformation($"Controller: Extracted tenantId {tenantId} from user's wishlist items");
+                                    break;
+                                }
+                            }
+                            catch
+                            {
+                                // Continue to next tenant ID
+                                continue;
+                            }
+                        }
+                        
+                        // If still not found, default to tenant 1
+                        if (!tenantId.HasValue || tenantId.Value <= 0)
+                        {
+                            tenantId = 1;
+                            Logger.LogInformation($"Controller: Using default tenantId: {tenantId}");
+                        }
+                    }
+                    catch
+                    {
+                        // Default to tenant 1 if unable to determine
+                        tenantId = 1;
+                        Logger.LogInformation($"Controller: Unable to determine tenantId, using default: {tenantId}");
+                    }
+                }
+
+                var request = new Model.WishList.ClearWishlistRequest
+                {
+                    UserId = userId,
+                    TenantId = tenantId,
+                    ClearCompletely = true // Default to hard delete
+                };
+
+                // Extract IP address and User-Agent from request headers if not provided
+                request.IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+                request.UserAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault();
+
+                var result = await this.productService.ClearWishlist(tenantId.Value, request);
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                Logger.LogWarning($"Controller: Clear wishlist failed - {ex.Message}");
+                return NotFound(new ApiResult { Exception = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                Logger.LogWarning($"Controller: Invalid argument - {ex.Message}");
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Controller: Error clearing wishlist: {ex.Message}", ex);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
             }
         }

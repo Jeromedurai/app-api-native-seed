@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Order Confirmation</title>
+    <title>Shipping Update</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -53,10 +53,22 @@
         .value {
             font-weight: bold;
         }
-        .address {
-            margin-top: 12px;
-            font-size: 14px;
-            color: #555;
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            background-color: #e7f1ff;
+            color: #0b5ed7;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-left: 6px;
+        }
+        .note {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 12px;
+            border-radius: 4px;
+            margin-top: 16px;
+            font-size: 13px;
         }
         .footer {
             margin-top: 30px;
@@ -66,26 +78,17 @@
             color: #888;
             text-align: center;
         }
-        .status-badge {
-            display: inline-block;
-            padding: 4px 10px;
-            background-color: #e9f5ee;
-            color: #1e7e34;
-            border-radius: 12px;
-            font-size: 12px;
-            margin-left: 6px;
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <div class="logo">@Model.CompanyName</div>
-            <h2 class="title">Order Confirmation</h2>
+            <h2 class="title">Shipping Update</h2>
         </div>
 
         <p>Hello @(Model.CustomerName ?? "Customer"),</p>
-        <p>Thanks for your order! We have received your order and will start processing it shortly.</p>
+        <p>Your order status has been updated.</p>
 
         <div class="summary">
             <div class="row">
@@ -93,29 +96,31 @@
                 <div class="value">@Model.OrderNumber</div>
             </div>
             <div class="row">
-                <div class="label">Order Date</div>
-                <div class="value">@Model.OrderDate</div>
-            </div>
-            <div class="row">
-                <div class="label">Items</div>
-                <div class="value">@Model.ItemCount</div>
-            </div>
-            <div class="row">
-                <div class="label">Total</div>
-                <div class="value">@Model.TotalAmount</div>
-            </div>
-            <div class="row">
                 <div class="label">Status</div>
-                <div class="value">@Model.OrderStatus <span class="status-badge">@Model.PaymentStatus</span></div>
+                <div class="value">@Model.Status <span class="status-badge">@Model.Status</span></div>
+            </div>
+            <div class="row">
+                <div class="label">Carrier</div>
+                <div class="value">@Model.Carrier</div>
+            </div>
+            <div class="row">
+                <div class="label">Tracking Number</div>
+                <div class="value">@Model.TrackingNumber</div>
+            </div>
+            <div class="row">
+                <div class="label">Estimated Delivery</div>
+                <div class="value">@Model.EstimatedDelivery</div>
             </div>
         </div>
 
-        <div>
-            <strong>Shipping Address</strong>
-            <div class="address">@Model.ShippingAddress</div>
-        </div>
+        @if (!string.IsNullOrEmpty(Model.Note))
+        {
+            <div class="note">
+                <strong>Note:</strong> @Model.Note
+            </div>
+        }
 
-        <p>If you have any questions, just reply to this email.</p>
+        <p>Thank you for shopping with us!</p>
 
         <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>

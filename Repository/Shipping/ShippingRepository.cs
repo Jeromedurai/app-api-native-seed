@@ -108,11 +108,28 @@ namespace Tenant.Query.Repository.Shipping
                     ? Convert.ToBoolean(cmd.Parameters["@FreeShipping"].Value) 
                     : false;
 
+                // Get dynamic free delivery threshold from settings
+                var freeDeliveryThreshold = 2000m; // Default fallback
+                try
+                {
+                    var freeDeliveryValue = _dataAccess.ExecuteScalar(
+                        "SELECT SettingValue FROM AppSettings WHERE SettingKey = 'FREE_DELIVERY' AND Active = 1"
+                    );
+                    if (freeDeliveryValue != null && decimal.TryParse(freeDeliveryValue.ToString(), out decimal threshold))
+                    {
+                        freeDeliveryThreshold = threshold;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    this.Logger.LogWarning(ex, "Could not retrieve FREE_DELIVERY setting, using default threshold");
+                }
+
                 return new CalculateShippingResponse
                 {
                     ShippingCharge = shippingCharge,
                     FreeShipping = freeShipping,
-                    FreeShippingThreshold = 2000, // Default threshold - can be made dynamic later
+                    FreeShippingThreshold = freeDeliveryThreshold,
                     CourierType = request.CourierType
                 };
             }
@@ -153,11 +170,28 @@ namespace Tenant.Query.Repository.Shipping
                     ? Convert.ToBoolean(cmd.Parameters["@FreeShipping"].Value) 
                     : false;
 
+                // Get dynamic free delivery threshold from settings
+                var freeDeliveryThreshold = 2000m; // Default fallback
+                try
+                {
+                    var freeDeliveryValue = _dataAccess.ExecuteScalar(
+                        "SELECT SettingValue FROM AppSettings WHERE SettingKey = 'FREE_DELIVERY' AND Active = 1"
+                    );
+                    if (freeDeliveryValue != null && decimal.TryParse(freeDeliveryValue.ToString(), out decimal threshold))
+                    {
+                        freeDeliveryThreshold = threshold;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    this.Logger.LogWarning(ex, "Could not retrieve FREE_DELIVERY setting, using default threshold");
+                }
+
                 return new CalculateShippingResponse
                 {
                     ShippingCharge = shippingCharge,
                     FreeShipping = freeShipping,
-                    FreeShippingThreshold = 2000, // Matches stored procedure threshold
+                    FreeShippingThreshold = freeDeliveryThreshold,
                     CourierType = request.CourierType
                 };
             }

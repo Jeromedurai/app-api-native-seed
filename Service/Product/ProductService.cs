@@ -23,6 +23,10 @@ using Tenant.Query.Model.ProductCart;
 using Tenant.Query.Model.Response;
 using Tenant.Query.Model.Response.ProductMaster;
 using Tenant.Query.Model.WishList;
+using Tenant.Query.Model.Email;
+using Tenant.Query.Repository.User;
+using Tenant.Query.Service.Email;
+using Tenant.Query.Model.Settings;
 using UnitsNet;
 
 namespace Tenant.Query.Service.Product
@@ -32,18 +36,24 @@ namespace Tenant.Query.Service.Product
         #region Private property
 
         private Repository.Product.ProductRepository productRepository;
+        private readonly UserRepository userRepository;
+        private readonly EmailService emailService;
         private readonly ILoggerFactory _loggerFactory;
         private readonly IConfiguration _configuration;
 
         #endregion
 
         public ProductService(Repository.Product.ProductRepository productRepository,
+                            UserRepository userRepository,
+                            EmailService emailService,
                             IConfiguration configuration,
                             ILoggerFactory loggerFactory,
                             TnAudit xcAudit,
                             TnValidation xcValidation) : base(xcAudit, xcValidation)
         {
             this.productRepository = productRepository;
+            this.userRepository = userRepository;
+            this.emailService = emailService;
             this._loggerFactory = loggerFactory;
             this._configuration = configuration;
             this.productRepository.Logger = loggerFactory.CreateLogger<Repository.Product.ProductRepository>();
@@ -888,6 +898,57 @@ namespace Tenant.Query.Service.Product
             }  
         }
 
+        public GetAppSettingsResponse GetAppSettings(long? tenantId, long? userId)
+        {
+            try
+            {
+                var settings = productRepository.GetAppSettings(tenantId, userId);
+                return new GetAppSettingsResponse
+                {
+                    Settings = settings
+                };
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("An error occurred while retrieving settings.", ex);
+            }
+        }
+
+        public SaveAppSettingsResponse SaveAppSettings(SaveAppSettingsRequest request)
+        {
+            try
+            {
+                if (request == null || request.Settings == null || request.Settings.Count == 0)
+                {
+                    return new SaveAppSettingsResponse
+                    {
+                        Success = false,
+                        Message = "Settings payload is empty."
+                    };
+                }
+
+                foreach (var setting in request.Settings)
+                {
+                    if (setting == null || string.IsNullOrWhiteSpace(setting.SettingKey))
+                    {
+                        continue;
+                    }
+
+                    productRepository.UpsertAppSetting(setting, request.TenantId, request.UserId);
+                }
+
+                return new SaveAppSettingsResponse();
+            }
+            catch (Exception ex)
+            {
+                return new SaveAppSettingsResponse
+                {
+                    Success = false,
+                    Message = $"Error saving settings: {ex.Message}"
+                };
+            }
+        }
+
         /// <summary>
         /// Delete a product
         /// </summary>
@@ -1299,6 +1360,90 @@ namespace Tenant.Query.Service.Product
         }
 
         /// <summary>
+        /// Enhanced product search with full-text, fuzzy matching, and advanced filters
+        /// </summary>
+        public async Task<ProductSearchResponse> SearchProductsEnhancedAsync(string tenantId, EnhancedProductSearchPayload payload)
+        {
+            try
+            {
+                if (payload == null)
+                    throw new ArgumentNullException(nameof(payload), "Search payload cannot be null.");
+
+                // Calculate offset for pagination
+                int offset = (payload.Page - 1) * payload.Limit;
+
+                // Call repository method to get enhanced search results
+                var searchResults = await Task.Run(() => productRepository.SearchProductsEnhanced(tenantId, payload, offset));
+
+                // Map the results to response model
+                var response = new ProductSearchResponse();
+
+                if (searchResults != null && searchResults.Tables.Count >= 2)
+                {
+                    // First table contains product data with relevance scores
+                    var productTable = searchResults.Tables[0];
+                    // Second table contains pagination metadata
+                    var paginationTable = searchResults.Tables[1];
+
+                    // Map products (enhanced version includes RelevanceScore, NameMatchPos, DescMatchPos)
+                    response.Products = MapProductSearchResults(productTable);
+
+                    // Load images for all products in batch
+                    var productIds = response.Products.Select(p => p.ProductId).ToList();
+                    var allImages = await LoadProductImagesBatchAsync(productIds);
+                    
+                    foreach (var product in response.Products)
+                    {
+                        product.Images = allImages.ContainsKey(product.ProductId) 
+                            ? allImages[product.ProductId] 
+                            : new List<ProductSearchImageInfo>();
+                    }
+
+                    // Map pagination info from second result set
+                    if (paginationTable.Rows.Count > 0)
+                    {
+                        var row = paginationTable.Rows[0];
+                        response.Pagination = new PaginationInfo
+                        {
+                            Page = Convert.ToInt32(row["CurrentPage"]),
+                            Limit = Convert.ToInt32(row["PageSize"]),
+                            Total = Convert.ToInt32(row["TotalCount"]),
+                            TotalPages = Convert.ToInt32(row["TotalPages"]),
+                            HasNext = Convert.ToBoolean(row["HasNext"]),
+                            HasPrevious = Convert.ToBoolean(row["HasPrevious"])
+                        };
+                    }
+                }
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("An error occurred while performing enhanced search.", ex);
+            }
+        }
+
+        /// <summary>
+        /// Get search suggestions for autocomplete
+        /// </summary>
+        public SearchSuggestionResponse GetSearchSuggestions(SearchSuggestionRequest request)
+        {
+            try
+            {
+                return productRepository.GetSearchSuggestions(request);
+            }
+            catch (Exception ex)
+            {
+                return new SearchSuggestionResponse
+                {
+                    Success = false,
+                    Message = "Error getting search suggestions",
+                    Query = request.Query
+                };
+            }
+        }
+
+        /// <summary>
         /// Get filtered product list for admin management
         /// </summary>
         /// <param name="tenantId">Tenant ID</param>
@@ -1619,6 +1764,42 @@ namespace Tenant.Query.Service.Product
         }
 
         /// <summary>
+        /// Clear entire wishlist
+        /// </summary>
+        /// <param name="tenantId">Tenant ID</param>
+        /// <param name="request">Clear wishlist request</param>
+        /// <returns>Wishlist clearing confirmation and statistics</returns>
+        public async Task<Model.WishList.ClearWishlistResponse> ClearWishlist(long tenantId, Model.WishList.ClearWishlistRequest request)
+        {
+            try
+            {
+                this._loggerFactory.CreateLogger<ProductService>().LogInformation($"Clear wishlist attempt for user: {request.UserId}");
+
+                if (request == null)
+                    throw new ArgumentNullException(nameof(request));
+
+                if (request.UserId <= 0)
+                    throw new ArgumentException("Valid User ID is required");
+
+                var clearResponse = await this.productRepository.ClearWishlist(tenantId, request);
+
+                this._loggerFactory.CreateLogger<ProductService>().LogInformation($"Clear wishlist successful for user: {request.UserId} - {clearResponse.ClearedItemCount} items cleared");
+
+                return clearResponse;
+            }
+            catch (KeyNotFoundException)
+            {
+                this._loggerFactory.CreateLogger<ProductService>().LogWarning($"Clear wishlist failed - user not found or wishlist already empty: {request?.UserId}");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                this._loggerFactory.CreateLogger<ProductService>().LogError($"Clear wishlist error for user {request?.UserId}: {ex.Message}");
+                throw new Exception("An error occurred while clearing the wishlist.", ex);
+            }
+        }
+
+        /// <summary>
         /// Create a new order
         /// </summary>
         /// <param name="request">Create order request</param>
@@ -1670,6 +1851,8 @@ namespace Tenant.Query.Service.Product
 
                 this._loggerFactory.CreateLogger<ProductService>().LogInformation($"Create order successful for user: {request.UserId}, Order Number: {orderResponse.OrderNumber}");
 
+                await SendOrderConfirmationEmail(request, orderResponse);
+
                 return orderResponse;
             }
             catch (KeyNotFoundException)
@@ -1682,10 +1865,20 @@ namespace Tenant.Query.Service.Product
                 this._loggerFactory.CreateLogger<ProductService>().LogWarning($"Create order failed - business rule violation for user: {request?.UserId}");
                 throw;
             }
+            catch (ArgumentException)
+            {
+                throw; // Re-throw validation errors with their original message
+            }
             catch (Exception ex)
             {
                 this._loggerFactory.CreateLogger<ProductService>().LogError($"Create order error for user {request?.UserId}: {ex.Message}");
-                throw new Exception("An error occurred while creating the order.", ex);
+                this._loggerFactory.CreateLogger<ProductService>().LogError($"Stack trace: {ex.StackTrace}");
+                if (ex.InnerException != null)
+                {
+                    this._loggerFactory.CreateLogger<ProductService>().LogError($"Inner exception: {ex.InnerException.Message}");
+                }
+                // Return detailed error in development for debugging
+                throw new Exception($"Order creation failed: {ex.Message}", ex);
             }
         }
 
@@ -1811,6 +2004,137 @@ namespace Tenant.Query.Service.Product
             }
         }
 
+        private async Task SendOrderConfirmationEmail(Model.Order.CreateOrderRequest request, Model.Order.CreateOrderResponse response)
+        {
+            try
+            {
+                var toEmail = request?.ShippingAddress?.Email;
+                if (string.IsNullOrWhiteSpace(toEmail))
+                {
+                    this._loggerFactory.CreateLogger<ProductService>().LogWarning("Order confirmation email skipped: recipient email is missing.");
+                    return;
+                }
+
+                var customerName = $"{request?.ShippingAddress?.FirstName} {request?.ShippingAddress?.LastName}".Trim();
+                if (string.IsNullOrWhiteSpace(customerName))
+                {
+                    customerName = $"{request?.ShippingAddress?.FirstName} {request?.ShippingAddress?.LastName}".Trim();
+                }
+
+                var companyName = _configuration["Invoice:CompanyName"] ?? _configuration["Email:FromName"] ?? "xtraCHEF";
+                var shippingAddress = FormatAddress(request?.ShippingAddress);
+                var orderDate = response.CreatedDate == default ? DateTime.UtcNow : response.CreatedDate;
+
+                var emailRequest = new SendEmailRequest
+                {
+                    To = toEmail,
+                    Subject = $"Order Confirmation - {response.OrderNumber}",
+                    TemplateName = "OrderConfirmation",
+                    TemplateData = new Dictionary<string, object>
+                    {
+                        { "CompanyName", companyName },
+                        { "CustomerName", string.IsNullOrWhiteSpace(customerName) ? "Customer" : customerName },
+                        { "OrderNumber", response.OrderNumber ?? response.OrderId.ToString() },
+                        { "OrderDate", orderDate.ToString("dd MMM yyyy") },
+                        { "ItemCount", response.ItemCount },
+                        { "TotalAmount", $"₹{response.TotalAmount:F2}" },
+                        { "OrderStatus", response.OrderStatus ?? "Pending" },
+                        { "PaymentStatus", response.PaymentStatus ?? "Pending" },
+                        { "ShippingAddress", shippingAddress }
+                    }
+                };
+
+                await emailService.SendEmail(emailRequest);
+            }
+            catch (Exception ex)
+            {
+                this._loggerFactory.CreateLogger<ProductService>().LogError($"Order confirmation email failed: {ex.Message}");
+            }
+        }
+
+        private async Task SendShippingUpdateEmail(Model.Order.UpdateOrderStatusRequest request, Model.Order.UpdateOrderStatusResponse response)
+        {
+            try
+            {
+                var newStatus = response?.NewStatus ?? request?.Status;
+                if (string.IsNullOrWhiteSpace(newStatus))
+                {
+                    return;
+                }
+
+                if (!string.Equals(newStatus, "Shipped", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(newStatus, "Delivered", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                var userId = response?.UserId > 0 ? response.UserId : (request?.UserId ?? 0);
+                if (userId <= 0)
+                {
+                    this._loggerFactory.CreateLogger<ProductService>().LogWarning("Shipping update email skipped: userId not available.");
+                    return;
+                }
+
+                var userList = userRepository.GetUser("SP_CUSTOMER", userId);
+                var user = userList?.FirstOrDefault();
+                if (user == null || string.IsNullOrWhiteSpace(user.Email))
+                {
+                    this._loggerFactory.CreateLogger<ProductService>().LogWarning($"Shipping update email skipped: email not found for user {userId}.");
+                    return;
+                }
+
+                var customerName = $"{user.FirstName} {user.LastName}".Trim();
+                var companyName = _configuration["Invoice:CompanyName"] ?? _configuration["Email:FromName"] ?? "xtraCHEF";
+                var trackingNumber = response?.TrackingNumber ?? request?.TrackingNumber ?? "N/A";
+                var carrier = response?.Carrier ?? request?.Carrier ?? "N/A";
+                var estimatedDelivery = response?.EstimatedDelivery ?? request?.EstimatedDelivery;
+                var note = response?.StatusNote ?? request?.Note ?? string.Empty;
+
+                var emailRequest = new SendEmailRequest
+                {
+                    To = user.Email,
+                    Subject = $"Your order {response?.OrderNumber ?? request?.OrderId.ToString()} is {newStatus}",
+                    TemplateName = "ShippingUpdate",
+                    TemplateData = new Dictionary<string, object>
+                    {
+                        { "CompanyName", companyName },
+                        { "CustomerName", string.IsNullOrWhiteSpace(customerName) ? "Customer" : customerName },
+                        { "OrderNumber", response?.OrderNumber ?? request?.OrderId.ToString() ?? "-" },
+                        { "Status", newStatus },
+                        { "TrackingNumber", trackingNumber },
+                        { "Carrier", carrier },
+                        { "EstimatedDelivery", estimatedDelivery.HasValue ? estimatedDelivery.Value.ToString("dd MMM yyyy") : "TBD" },
+                        { "Note", note }
+                    }
+                };
+
+                await emailService.SendEmail(emailRequest);
+            }
+            catch (Exception ex)
+            {
+                this._loggerFactory.CreateLogger<ProductService>().LogError($"Shipping update email failed: {ex.Message}");
+            }
+        }
+
+        private static string FormatAddress(Model.Order.AddressRequest address)
+        {
+            if (address == null)
+            {
+                return "Address not available";
+            }
+
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(address.Company)) parts.Add(address.Company);
+            if (!string.IsNullOrWhiteSpace(address.Address1)) parts.Add(address.Address1);
+            if (!string.IsNullOrWhiteSpace(address.Address2)) parts.Add(address.Address2);
+            if (!string.IsNullOrWhiteSpace(address.City)) parts.Add(address.City);
+            if (!string.IsNullOrWhiteSpace(address.State)) parts.Add(address.State);
+            if (!string.IsNullOrWhiteSpace(address.ZipCode)) parts.Add(address.ZipCode);
+            if (!string.IsNullOrWhiteSpace(address.Country)) parts.Add(address.Country);
+
+            return string.Join(", ", parts);
+        }
+
         /// <summary>
         /// Update order status
         /// </summary>
@@ -1841,6 +2165,8 @@ namespace Tenant.Query.Service.Product
                 var statusResponse = await this.productRepository.UpdateOrderStatus(request);
 
                 this._loggerFactory.CreateLogger<ProductService>().LogInformation($"Update order status successful for order: {request.OrderId} to status: {request.Status}");
+
+                await SendShippingUpdateEmail(request, statusResponse);
 
                 return statusResponse;
             }

@@ -45,6 +45,9 @@ namespace Tenant.Query.Model.WishList
         [JsonProperty("product_id")]
         public long ProductId { get; set; }
 
+        [JsonProperty("tenant_id")]
+        public long TenantId { get; set; }
+
         [JsonProperty("quantity")]
         public int Quantity { get; set; } = 1;
 
