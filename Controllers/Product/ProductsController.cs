@@ -1328,6 +1328,49 @@ namespace Tenant.Query.Controllers.Product
         }
 
         /// <summary>
+        /// Delete a category
+        /// </summary>
+        /// <param name="categoryId">Category ID</param>
+        /// <param name="tenantId">Tenant ID</param>
+        /// <returns>Success message</returns>
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status404NotFound, "Category not found", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [HttpDelete]
+        [Route("categories/{categoryId:long}")]
+        public async Task<IActionResult> DeleteCategory([FromRoute] long categoryId, [FromQuery] long tenantId)
+        {
+            try
+            {
+                if (categoryId <= 0)
+                {
+                    return BadRequest(new ApiResult { Exception = "Invalid category ID" });
+                }
+
+                if (tenantId <= 0)
+                {
+                    return BadRequest(new ApiResult { Exception = "Invalid tenant ID" });
+                }
+
+                await this.Service.DeleteCategory(categoryId, tenantId);
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = "Category deleted successfully" });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResult { Exception = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
         /// Get menu master with categories
         /// </summary>
         /// <param name="tenantId">Optional tenant ID filter</param>

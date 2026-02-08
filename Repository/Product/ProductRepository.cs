@@ -821,8 +821,9 @@ namespace Tenant.Query.Repository.Product
                             OrderBy = row["OrderBy"] != DBNull.Value ? Convert.ToInt32(row["OrderBy"]) : (int?)null,
                             Description = row["Description"]?.ToString(),
                             Icon = row["Icon"]?.ToString(),
-                            ParentCategoryId = row["ParentCategoryId"] != DBNull.Value ? Convert.ToInt64(row["ParentCategoryId"]) : (long?)null,
-                            TenantId = Convert.ToInt64(row["TenantId"])
+                            ParentCategoryId = row["ParentCategoryId"] != DBNull.Value ? Convert.ToInt64(row["ParentCategoryId"]) : 0,
+                            TenantId = Convert.ToInt64(row["TenantId"]),
+                            MenuId = row.Table.Columns.Contains("MenuId") && row["MenuId"] != DBNull.Value ? Convert.ToInt64(row["MenuId"]) : 0
                         });
                     }
                 }
@@ -897,13 +898,45 @@ namespace Tenant.Query.Repository.Product
                     request.Icon ?? (object)DBNull.Value,
                     request.HasSubMenu,
                     request.Link ?? (object)DBNull.Value,
-                    userId
+                    userId,
+                    request.MenuId ?? (object)DBNull.Value
                 ));
 
                 if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
                 {
                     throw new KeyNotFoundException("Category not found or does not belong to this tenant");
                 }
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Delete a category (soft delete if products exist, hard delete otherwise)
+        /// </summary>
+        /// <param name="categoryId">Category ID to delete</param>
+        /// <param name="tenantId">Tenant ID</param>
+        /// <param name="userId">User ID performing the delete</param>
+        /// <returns>True if deleted successfully</returns>
+        public async Task<bool> DeleteCategory(long categoryId, long tenantId, long userId)
+        {
+            try
+            {
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Constant.StoredProcedures.SP_DELETE_CATEGORY,
+                    categoryId,
+                    tenantId,
+                    userId
+                ));
+
+                if (result != null && result.Tables.Count > 0 && result.Tables[0].Rows.Count > 0)
+                {
+                    return true;
+                }
+
+                throw new KeyNotFoundException("Category not found or does not belong to this tenant");
             }
             catch (Exception ex)
             {
@@ -1176,7 +1209,7 @@ namespace Tenant.Query.Repository.Product
             try
             {
                 // Execute stored procedure for product search
-                DataSet result = _dataAccess.ExecuteDataset(
+                    DataSet result = _dataAccess.ExecuteDataset(
                     Constant.StoredProcedures.SP_SEARCH_PRODUCTS,
                     Convert.ToInt64(tenantId),
                     payload.Page,

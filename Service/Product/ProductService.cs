@@ -1076,6 +1076,34 @@ namespace Tenant.Query.Service.Product
         }
 
         /// <summary>
+        /// Delete a category
+        /// </summary>
+        /// <param name="categoryId">Category ID to delete</param>
+        /// <param name="tenantId">Tenant ID</param>
+        /// <returns>True if deleted successfully</returns>
+        public async Task<bool> DeleteCategory(long categoryId, long tenantId)
+        {
+            try
+            {
+                if (categoryId <= 0)
+                    throw new ArgumentException("Invalid category ID", nameof(categoryId));
+
+                if (tenantId <= 0)
+                    throw new ArgumentException("Invalid tenant ID", nameof(tenantId));
+
+                // Get current user ID from context or pass it as parameter
+                long userId = 1; // TODO: Get from context
+
+                // Call repository to delete category
+                return await productRepository.DeleteCategory(categoryId, tenantId, userId);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("An error occurred while deleting the category.", ex);
+            }
+        }
+
+        /// <summary>
         /// Get menu master with categories
         /// </summary>
         /// <param name="tenantId">Optional tenant ID filter</param>
@@ -1552,6 +1580,7 @@ namespace Tenant.Query.Service.Product
                     Total = GetColumnValue<int>(row, "Total"),
                     Price = GetColumnValue<decimal>(row, "Price"),
                     Category = GetColumnValue<int>(row, "Category"),
+                    CategoryName = GetColumnValue<string>(row, "CategoryName", string.Empty),
                     Rating = GetColumnValue<int>(row, "Rating"),
                     Active = GetColumnValue<bool>(row, "Active"),
                     Trending = GetColumnValue<int>(row, "Trending"),
@@ -2037,7 +2066,7 @@ namespace Tenant.Query.Service.Product
                         { "OrderNumber", response.OrderNumber ?? response.OrderId.ToString() },
                         { "OrderDate", orderDate.ToString("dd MMM yyyy") },
                         { "ItemCount", response.ItemCount },
-                        { "TotalAmount", $"₹{response.TotalAmount:F2}" },
+                        { "TotalAmount", $"â‚¹{response.TotalAmount:F2}" },
                         { "OrderStatus", response.OrderStatus ?? "Pending" },
                         { "PaymentStatus", response.PaymentStatus ?? "Pending" },
                         { "ShippingAddress", shippingAddress }

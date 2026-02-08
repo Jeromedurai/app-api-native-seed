@@ -37,6 +37,7 @@ namespace Tenant.Query.Model.Product
         public int Total { get; set; }
         public decimal Price { get; set; }
         public int Category { get; set; }
+        public string CategoryName { get; set; } = string.Empty;
         public int Rating { get; set; }
         public bool Active { get; set; }
         public int Trending { get; set; }

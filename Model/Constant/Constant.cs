@@ -50,6 +50,7 @@
             public const string SP_GET_ALL_CATEGORIES = "[dbo].[SP_GET_ALL_CATEGORIES]";
             public const string SP_ADD_CATEGORY = "[dbo].[SP_ADD_CATEGORY]";
             public const string SP_UPDATE_CATEGORY = "[dbo].[SP_UPDATE_CATEGORY]";
+            public const string SP_DELETE_CATEGORY = "[dbo].[SP_DELETE_CATEGORY]";
             public const string SP_GET_MENU_MASTER = "[dbo].[SP_GET_MENU_MASTER]";
             public const string SP_USER_LOGIN = "[dbo].[SP_USER_LOGIN]";
             public const string SP_USER_REGISTER = "[dbo].[SP_USER_REGISTER]";

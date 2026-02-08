@@ -53,9 +53,9 @@ namespace Tenant.Query.Model.Product
         public string Icon { get; set; }
 
         /// <summary>
-        /// Parent category ID
+        /// Parent category ID (0 = no parent)
         /// </summary>
-        public long? ParentCategoryId { get; set; }
+        public long ParentCategoryId { get; set; }
 
         /// <summary>
         /// Tenant ID
@@ -63,8 +63,8 @@ namespace Tenant.Query.Model.Product
         public long TenantId { get; set; }
 
         /// <summary>
-        /// Menu ID
+        /// Menu ID (0 = no menu)
         /// </summary>
-        public long? MenuId { get; set; }
+        public long MenuId { get; set; }
     }
 }

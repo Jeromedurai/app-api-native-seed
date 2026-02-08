@@ -319,6 +319,75 @@ IF OBJECT_ID(N'[dbo].[SP_GET_SEARCH_SUGGESTIONS]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_GET_SEARCH_SUGGESTIONS];
 GO
 
+
+-- Drop and recreate SP_DELETE_CATEGORY
+IF OBJECT_ID(N'[dbo].[SP_DELETE_CATEGORY]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_DELETE_CATEGORY];
+GO
+
+CREATE PROCEDURE [dbo].[SP_DELETE_CATEGORY]
+	@CategoryId BIGINT,
+	@TenantId BIGINT,
+	@UserId BIGINT
+AS
+BEGIN
+	SET NOCOUNT ON;
+	
+	BEGIN TRY
+		BEGIN TRANSACTION;
+		
+		-- Check if category exists and belongs to the tenant
+		IF NOT EXISTS (SELECT 1 FROM Categories WHERE CategoryId = @CategoryId AND TenantId = @TenantId)
+		BEGIN
+			RAISERROR('Category not found or does not belong to this tenant.', 16, 1);
+			RETURN;
+		END
+		
+		-- Check if category has child categories
+		IF EXISTS (SELECT 1 FROM Categories WHERE ParentCategoryId = @CategoryId AND Active = 1)
+		BEGIN
+			RAISERROR('Cannot delete category with active child categories. Please delete or reassign child categories first.', 16, 1);
+			RETURN;
+		END
+		
+		-- Check if category is used by any products
+		IF EXISTS (SELECT 1 FROM Products WHERE Category = @CategoryId AND Active = 1)
+		BEGIN
+			-- Soft delete - just mark as inactive
+			UPDATE Categories
+			SET 
+				Active = 0,
+				Modified = GETUTCDATE(),
+				ModifiedBy = @UserId
+			WHERE CategoryId = @CategoryId
+				AND TenantId = @TenantId;
+		END
+		ELSE
+		BEGIN
+			-- Hard delete - no products are using this category
+			DELETE FROM Categories 
+			WHERE CategoryId = @CategoryId 
+				AND TenantId = @TenantId;
+		END
+		
+		-- Return success
+		SELECT @CategoryId AS CategoryId;
+		
+		COMMIT TRANSACTION;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+			
+		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+		DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+		DECLARE @ErrorState INT = ERROR_STATE();
+		
+		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+	END CATCH
+END
+GO
+
 CREATE PROCEDURE [dbo].[SP_DELETE_PRODUCT_IMAGE]
 				@ProductId BIGINT,
 				@ImageId BIGINT,
@@ -7026,50 +7095,12 @@ BEGIN
         AND CourierType = @CourierType
         AND Active = 1;
     
-    -- Fallback if not found
+    -- No fallback: if no rate found, return NULL so application can show error
     IF @BaseCharge IS NULL
     BEGIN
-        SET @BaseCharge = CASE 
-            WHEN @ProductType = 'Seed' THEN 
-                CASE 
-                    WHEN @StateCode = 'TN' AND @CourierType = 'Postal' THEN 40
-                    WHEN @StateCode = 'TN' AND @CourierType = 'Other' THEN 50
-                    WHEN @CourierType = 'Postal' THEN 60
-                    ELSE 75
-                END
-            WHEN @ProductType = 'Plant' THEN 
-                CASE 
-                    WHEN @StateCode = 'TN' AND @CourierType = 'Postal' THEN 120
-                    WHEN @StateCode = 'TN' AND @CourierType = 'Other' THEN 150
-                    WHEN @CourierType = 'Postal' THEN 180
-                    ELSE 200
-                END
-            ELSE 100
-        END;
-        
-        SET @PerUnitCharge = CASE 
-            WHEN @ProductType = 'Seed' THEN 
-                CASE WHEN @CourierType = 'Postal' THEN 4 ELSE 5 END
-            WHEN @ProductType = 'Plant' THEN 
-                CASE WHEN @CourierType = 'Postal' THEN 12 ELSE 15 END
-            ELSE 10
-        END;
-        
-        SET @MinCharge = @BaseCharge;
-        -- Get dynamic free delivery threshold from settings
-        SELECT @FreeShippingThreshold = CAST(SettingValue AS DECIMAL(18,2))
-        FROM AppSettings 
-        WHERE SettingKey = 'FREE_DELIVERY' AND Active = 1;
-        
-        -- Fallback to default if not found
-        IF @FreeShippingThreshold IS NULL
-        BEGIN
-            SET @FreeShippingThreshold = CASE 
-                WHEN @ProductType = 'Seed' THEN 1000
-                WHEN @ProductType = 'Plant' THEN 2000
-                ELSE 1500
-            END;
-        END
+        SET @ShippingCharge = NULL;
+        SET @FreeShipping = 0;
+        RETURN;
     END
     
     -- Calculate charge: Base + (Quantity × PerUnitCharge)
@@ -7133,6 +7164,14 @@ BEGIN
         EXEC SP_CALCULATE_SHIPPING_CHARGE 
             @TenantId, 'Plant', @StateCode, @CourierType, @PlantSubtotal, @PlantQuantity,
             @PlantCharge OUTPUT, @PlantFreeShipping OUTPUT;
+    END
+    
+    -- If any required rate was not found, return NULL so application can show error
+    IF @SeedCharge IS NULL OR @PlantCharge IS NULL
+    BEGIN
+        SET @ShippingCharge = NULL;
+        SET @FreeShipping = 0;
+        RETURN;
     END
     
     -- Use the higher charge (plants usually cost more)

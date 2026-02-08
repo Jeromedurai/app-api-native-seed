@@ -163,12 +163,25 @@ namespace Tenant.Query.Repository.Shipping
                     DBNull.Value  // @FreeShipping OUTPUT - auto-discovered by data access layer
                 ));
 
-                var shippingCharge = cmd.Parameters["@ShippingCharge"].Value != DBNull.Value 
-                    ? Convert.ToDecimal(cmd.Parameters["@ShippingCharge"].Value) 
-                    : 0m;
-                var freeShipping = cmd.Parameters["@FreeShipping"].Value != DBNull.Value 
-                    ? Convert.ToBoolean(cmd.Parameters["@FreeShipping"].Value) 
+                var shippingChargeParam = cmd.Parameters["@ShippingCharge"].Value;
+                decimal? shippingCharge = (shippingChargeParam != null && shippingChargeParam != DBNull.Value)
+                    ? Convert.ToDecimal(shippingChargeParam)
+                    : (decimal?)null;
+                var freeShipping = cmd.Parameters["@FreeShipping"].Value != DBNull.Value
+                    ? Convert.ToBoolean(cmd.Parameters["@FreeShipping"].Value)
                     : false;
+
+                // When no rate found in ShippingRates table, SP returns NULL; do not use fallback
+                if (shippingCharge == null)
+                {
+                    return new CalculateShippingResponse
+                    {
+                        ShippingCharge = null,
+                        FreeShipping = false,
+                        FreeShippingThreshold = null,
+                        CourierType = request.CourierType
+                    };
+                }
 
                 // Get dynamic free delivery threshold from settings
                 var freeDeliveryThreshold = 2000m; // Default fallback
