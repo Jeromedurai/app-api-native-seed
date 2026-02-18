@@ -5452,6 +5452,53 @@ BEGIN
 			END
 		WHERE OrderId = @OrderId;
 		
+		-- INVENTORY RESTORATION: Restore stock when order is cancelled
+		-- Only restore if status is changing TO 'Cancelled' FROM a non-cancelled status
+		IF @NewStatus = 'Cancelled' 
+			AND @CurrentStatus != 'Cancelled'
+			AND @CurrentStatus NOT IN ('Refunded', 'Returned') -- Don't restore if already processed
+		BEGIN
+			-- Restore product stock
+			UPDATE p
+			SET 
+				p.Quantity = p.Quantity + oi.Quantity,
+				p.UserBuyCount = CASE 
+					WHEN p.UserBuyCount >= oi.Quantity THEN p.UserBuyCount - oi.Quantity
+					ELSE 0
+				END,
+				p.Modified = @CurrentTime
+			FROM Products p
+			INNER JOIN OrderItems oi ON p.ProductId = oi.ProductId
+			WHERE oi.OrderId = @OrderId 
+				AND oi.Active = 1
+				AND p.Active = 1;
+			
+			-- Restore coupon if used
+			DECLARE @OrderCouponId BIGINT = NULL;
+			SELECT @OrderCouponId = CouponId
+			FROM Orders
+			WHERE OrderId = @OrderId;
+			
+			IF @OrderCouponId IS NOT NULL
+			BEGIN
+				BEGIN TRY
+					UPDATE Coupons
+					SET UsageCount = CASE WHEN UsageCount > 0 THEN UsageCount - 1 ELSE 0 END,
+						UpdatedAt = @CurrentTime
+					WHERE CouponId = @OrderCouponId;
+					
+					IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'CouponUsage')
+					BEGIN
+						DELETE FROM CouponUsage
+						WHERE OrderId = @OrderId AND CouponId = @OrderCouponId;
+					END
+				END TRY
+				BEGIN CATCH
+					-- Ignore coupon restore errors - don't fail the cancellation
+				END CATCH
+			END
+		END
+		
 		-- Add status history record
 		IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'OrderStatusHistory')
 		BEGIN
@@ -5511,6 +5558,185 @@ BEGIN
 			@CurrentTime AS UpdatedDate
 		FROM Orders
 		WHERE OrderId = @OrderId;
+		
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		
+		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+		DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+		DECLARE @ErrorState INT = ERROR_STATE();
+		
+		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+	END CATCH
+END
+GO
+
+CREATE OR ALTER PROCEDURE [dbo].[SP_CANCEL_ORDER]
+	@OrderId BIGINT,
+	@UserId BIGINT,
+	@TenantId BIGINT = NULL,
+	@CancelReason NVARCHAR(1000) = NULL,
+	@CancelledBy BIGINT = NULL,
+	@IpAddress NVARCHAR(45) = NULL,
+	@UserAgent NVARCHAR(500) = NULL
+AS
+BEGIN
+	SET NOCOUNT ON;
+	
+	BEGIN TRY
+		BEGIN TRANSACTION;
+		
+		DECLARE @CurrentTime DATETIME2(7) = GETUTCDATE();
+		DECLARE @CurrentStatus NVARCHAR(50);
+		DECLARE @OrderNumber NVARCHAR(50);
+		DECLARE @TotalAmount DECIMAL(18,2);
+		DECLARE @PaymentStatus NVARCHAR(50);
+		DECLARE @OrderCouponId BIGINT = NULL;
+		
+		-- Validate user exists and is active
+		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		BEGIN
+			RAISERROR('User not found or inactive.', 16, 1);
+			RETURN;
+		END
+		
+		-- Validate order exists and belongs to user
+		SELECT 
+			@CurrentStatus = OrderStatus,
+			@OrderNumber = OrderNumber,
+			@TotalAmount = TotalAmount,
+			@PaymentStatus = PaymentStatus,
+			@OrderCouponId = CouponId
+		FROM Orders 
+		WHERE OrderId = @OrderId 
+			AND UserId = @UserId 
+			AND Active = 1
+			AND (@TenantId IS NULL OR TenantId = @TenantId);
+		
+		IF @CurrentStatus IS NULL
+		BEGIN
+			RAISERROR('Order not found or does not belong to user.', 16, 1);
+			RETURN;
+		END
+		
+		-- Check if order can be cancelled
+		IF @CurrentStatus = 'Cancelled'
+		BEGIN
+			RAISERROR('Order is already cancelled.', 16, 1);
+			RETURN;
+		END
+		
+		IF @CurrentStatus IN ('Delivered', 'Shipped')
+		BEGIN
+			RAISERROR('Cannot cancel order that has been shipped or delivered.', 16, 1);
+			RETURN;
+		END
+		
+		-- INVENTORY RESTORATION: Restore stock when order is cancelled
+		-- Only restore if order wasn't already cancelled/refunded
+		IF @CurrentStatus NOT IN ('Cancelled', 'Refunded', 'Returned')
+		BEGIN
+			-- Restore product stock
+			UPDATE p
+			SET 
+				p.Quantity = p.Quantity + oi.Quantity,
+				p.UserBuyCount = CASE 
+					WHEN p.UserBuyCount >= oi.Quantity THEN p.UserBuyCount - oi.Quantity
+					ELSE 0
+				END,
+				p.Modified = @CurrentTime
+			FROM Products p
+			INNER JOIN OrderItems oi ON p.ProductId = oi.ProductId
+			WHERE oi.OrderId = @OrderId 
+				AND oi.Active = 1
+				AND p.Active = 1;
+			
+			-- Restore coupon if used
+			IF @OrderCouponId IS NOT NULL
+			BEGIN
+				BEGIN TRY
+					UPDATE Coupons
+					SET UsageCount = CASE WHEN UsageCount > 0 THEN UsageCount - 1 ELSE 0 END,
+						UpdatedAt = @CurrentTime
+					WHERE CouponId = @OrderCouponId;
+					
+					IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'CouponUsage')
+					BEGIN
+						DELETE FROM CouponUsage
+						WHERE OrderId = @OrderId AND CouponId = @OrderCouponId;
+					END
+				END TRY
+				BEGIN CATCH
+					-- Ignore coupon restore errors - don't fail the cancellation
+				END CATCH
+			END
+		END
+		
+		-- Update order status to Cancelled
+		UPDATE Orders
+		SET 
+			OrderStatus = 'Cancelled',
+			PaymentStatus = CASE 
+				WHEN @PaymentStatus = 'paid' THEN 'refunded'
+				ELSE 'cancelled'
+			END,
+			Notes = CASE 
+				WHEN @CancelReason IS NOT NULL AND Notes IS NOT NULL THEN Notes + CHAR(13) + CHAR(10) + 'Cancellation Reason: ' + @CancelReason
+				WHEN @CancelReason IS NOT NULL THEN 'Cancellation Reason: ' + @CancelReason
+				ELSE Notes
+			END,
+			UpdatedAt = @CurrentTime
+		WHERE OrderId = @OrderId;
+		
+		-- Add status history record
+		IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'OrderStatusHistory')
+		BEGIN
+			INSERT INTO OrderStatusHistory (
+				OrderId,
+				PreviousStatus,
+				NewStatus,
+				StatusNote,
+				ChangedBy,
+				ChangedAt,
+				CreatedAt
+			) VALUES (
+				@OrderId,
+				@CurrentStatus,
+				'Cancelled',
+				@CancelReason,
+				ISNULL(@CancelledBy, @UserId),
+				@CurrentTime,
+				@CurrentTime
+			);
+		END
+		
+		COMMIT TRANSACTION;
+		
+		-- Calculate refund amount (if payment was made)
+		DECLARE @RefundAmount DECIMAL(18,2) = 0;
+		DECLARE @RefundInitiated BIT = 0;
+		
+		IF @PaymentStatus = 'paid'
+		BEGIN
+			SET @RefundAmount = @TotalAmount;
+			SET @RefundInitiated = 1; -- Flag that refund should be initiated
+		END
+		
+		-- Return cancellation details
+		SELECT 
+			@OrderId AS OrderId,
+			@OrderNumber AS OrderNumber,
+			@UserId AS UserId,
+			@CurrentStatus AS PreviousStatus,
+			'Cancelled' AS NewStatus,
+			@RefundAmount AS RefundAmount,
+			@CancelReason AS CancelReason,
+			'Order cancelled successfully' AS Message,
+			@CurrentTime AS CancelledDate,
+			@RefundInitiated AS RefundInitiated,
+			1 AS Success;
 		
 	END TRY
 	BEGIN CATCH
