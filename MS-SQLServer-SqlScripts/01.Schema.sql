@@ -393,26 +393,13 @@ CREATE TABLE UserAddresses (
 );
 
 -- Orders table indexes
-CREATE NONCLUSTERED INDEX IX_Orders_UserId ON Orders (UserId);
-CREATE NONCLUSTERED INDEX IX_Orders_TenantId ON Orders (TenantId);
-CREATE NONCLUSTERED INDEX IX_Orders_OrderNumber ON Orders (OrderNumber);
-CREATE NONCLUSTERED INDEX IX_Orders_OrderStatus ON Orders (OrderStatus);
-CREATE NONCLUSTERED INDEX IX_Orders_PaymentStatus ON Orders (PaymentStatus);
-CREATE NONCLUSTERED INDEX IX_Orders_OrderDate ON Orders (OrderDate);
-CREATE NONCLUSTERED INDEX IX_Orders_CreatedAt ON Orders (CreatedAt);
-CREATE NONCLUSTERED INDEX IX_Orders_SessionId ON Orders (SessionId);
-CREATE NONCLUSTERED INDEX IX_Orders_OrderType ON Orders (OrderType);
-CREATE NONCLUSTERED INDEX IX_Orders_Source ON Orders (Source);
-CREATE NONCLUSTERED INDEX IX_Orders_CouponId ON Orders (CouponId) WHERE CouponId IS NOT NULL;
-CREATE NONCLUSTERED INDEX IX_Orders_CouponCode ON Orders (CouponCode) WHERE CouponCode IS NOT NULL;
+-- Note: All indexes have been moved to 02.Indexes.sql for centralized management
 
 -- OrderItems table indexes
--- CREATE NONCLUSTERED INDEX IX_OrderItems_OrderId ON OrderItems (OrderId);
--- CREATE NONCLUSTERED INDEX IX_OrderItems_ProductId ON OrderItems (ProductId);
+-- Note: All indexes have been moved to 02.Indexes.sql for centralized management
 
 -- UserAddresses table indexes
-CREATE NONCLUSTERED INDEX IX_UserAddresses_UserId ON UserAddresses (UserId);
-CREATE NONCLUSTERED INDEX IX_UserAddresses_AddressType ON UserAddresses (AddressType);
+-- Note: All indexes have been moved to 02.Indexes.sql for centralized management
 
 -- Order Status History Table
 CREATE TABLE OrderStatusHistory (
@@ -631,18 +618,11 @@ CREATE TABLE ShippingRates (
 );
 
 -- Indexes for faster lookups
-CREATE NONCLUSTERED INDEX IX_ShippingRates_Tenant_Product ON ShippingRates(TenantId, ProductType, Active);
-CREATE NONCLUSTERED INDEX IX_ShippingRates_State_Courier ON ShippingRates(StateCode, CourierType, Active);
+-- Note: All indexes have been moved to 02.Indexes.sql for centralized management
 GO
 
 -- Create Indexes for better query performance
-CREATE NONCLUSTERED INDEX IX_RazorpayPayments_UserId ON RazorpayPayments(UserId);
-CREATE NONCLUSTERED INDEX IX_RazorpayPayments_TenantId ON RazorpayPayments(TenantId);
-CREATE NONCLUSTERED INDEX IX_RazorpayPayments_OrderId ON RazorpayPayments(OrderId);
-CREATE NONCLUSTERED INDEX IX_RazorpayPayments_RazorpayOrderId ON RazorpayPayments(RazorpayOrderId);
-CREATE NONCLUSTERED INDEX IX_RazorpayPayments_Status ON RazorpayPayments(Status);
-CREATE NONCLUSTERED INDEX IX_RazorpayPayments_SignatureVerified ON RazorpayPayments(SignatureVerified);
-CREATE NONCLUSTERED INDEX IX_RazorpayPayments_CreatedAt ON RazorpayPayments(CreatedAt);
+-- Note: All indexes have been moved to 02.Indexes.sql for centralized management
 GO
 
 
@@ -670,12 +650,10 @@ BEGIN
     );
 
     -- Create unique index on Code + TenantId
-    CREATE UNIQUE NONCLUSTERED INDEX [IX_Coupons_Code_TenantId] 
-    ON [dbo].[Coupons] ([Code], [TenantId]);
+    -- Note: Index creation moved to 02.Indexes.sql for centralized management
 
     -- Create index on TenantId for faster queries
-    CREATE NONCLUSTERED INDEX [IX_Coupons_TenantId] 
-    ON [dbo].[Coupons] ([TenantId]);
+    -- Note: Index creation moved to 02.Indexes.sql for centralized management
 END
 GO
 
@@ -694,20 +672,16 @@ BEGIN
     );
 
     -- Create index on CouponId for usage tracking
-    CREATE NONCLUSTERED INDEX [IX_CouponUsage_CouponId] 
-    ON [dbo].[CouponUsage] ([CouponId]);
+    -- Note: Index creation moved to 02.Indexes.sql for centralized management
 
     -- Create index on UserId for user-specific queries
-    CREATE NONCLUSTERED INDEX [IX_CouponUsage_UserId] 
-    ON [dbo].[CouponUsage] ([UserId]);
+    -- Note: Index creation moved to 02.Indexes.sql for centralized management
 
     -- Create index on OrderId
-    CREATE NONCLUSTERED INDEX [IX_CouponUsage_OrderId] 
-    ON [dbo].[CouponUsage] ([OrderId]);
+    -- Note: Index creation moved to 02.Indexes.sql for centralized management
 
     -- Create unique constraint on CouponId + OrderId to prevent duplicate usage
-    CREATE UNIQUE NONCLUSTERED INDEX [IX_CouponUsage_CouponId_OrderId] 
-    ON [dbo].[CouponUsage] ([CouponId], [OrderId]);
+    -- Note: Index creation moved to 02.Indexes.sql for centralized management
 
     PRINT 'Table CouponUsage created successfully';
 END
