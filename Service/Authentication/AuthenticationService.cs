@@ -29,7 +29,7 @@ namespace Tenant.Query.Service.Authentication
         #region Constructor
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="T:XtraChef.API.Authentication.Services.Authentication"/> class.
+        /// Initializes a new instance of the <see cref="T:Himalaya.API.Authentication.Services.Authentication"/> class.
         /// </summary>
         /// <param name="authenticationRepository">Tenant repository.</param>
         /// <param name="loggerFactory">Logger factory.</param>
@@ -220,7 +220,7 @@ namespace Tenant.Query.Service.Authentication
                     bool isInternalTenant = false;
 
                     //list of internal tenants
-                    var internalTenants = this.Configuration["xtraCHEF:InternalTenants"];
+                    var internalTenants = this.Configuration["Himalaya:InternalTenants"];
 
                     //if tenant is one of the internal tenant
                     if (internalTenants != null)

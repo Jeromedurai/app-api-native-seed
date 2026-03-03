@@ -42,7 +42,7 @@ namespace Tenant.Query.Service.Invoice
 
                 _logger.LogInformation($"Generating PDF for OrderId={order.OrderId}, OrderNumber={order.OrderNumber}");
 
-                var companyName = _configuration["Invoice:CompanyName"] ?? "Xtrachef";
+                var companyName = _configuration["Invoice:CompanyName"] ?? "Himalaya";
                 var companyAddress = _configuration["Invoice:CompanyAddress"] ?? "";
                 var companyPhone = _configuration["Invoice:CompanyPhone"] ?? "";
                 var companyEmail = _configuration["Invoice:CompanyEmail"] ?? "";

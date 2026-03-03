@@ -20,7 +20,7 @@ namespace Tenant.Query.Repository.Authentication
         private readonly IConfiguration _configuration;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="T:XtraChef.Tenant.Repository.Tenant"/> class.
+        /// Initializes a new instance of the <see cref="T:Himalaya.Tenant.Repository.Tenant"/> class.
         /// </summary>
         /// <param name="dbContext">Db context.</param>
         /// <param name="loggerFactory">Logger factory.</param>
@@ -563,7 +563,7 @@ namespace Tenant.Query.Repository.Authentication
 // , @ENABLEINVDUPWITHINAPPROVAL BIT
 // , @ENABLEVENDORHUB BIT
 // , @DISCOUNTBY INT
-// , @XTRACHEFACCOUNTMANAGERID VARCHAR(50)
+// , @HimalayaACCOUNTMANAGERID VARCHAR(50)
 // , @SYSTEMTENANT BIT
 // , @NONUSTENANT BIT
 // , @SYNC_EXPIRES_ON VARCHAR(11)
@@ -662,7 +662,7 @@ namespace Tenant.Query.Repository.Authentication
 //  , @ENABLEINVDUPWITHINAPPROVAL_IP BIT
 //  , @ENABLEVENDORHUB_IP BIT
 //  , @DISCOUNTBY_IP INT
-//  , @XTRACHEFACCOUNTMANAGERID_IP VARCHAR(50)
+//  , @HimalayaACCOUNTMANAGERID_IP VARCHAR(50)
 //  , @SYSTEMTENANT_IP BIT
 //  , @NONUSTENANT_IP BIT
 //  , @SYNC_EXPIRES_ON_IP VARCHAR(11)
@@ -753,7 +753,7 @@ namespace Tenant.Query.Repository.Authentication
 //  , @ENABLEINVDUPWITHINAPPROVAL_IP = @ENABLEINVDUPWITHINAPPROVAL
 //  , @ENABLEVENDORHUB_IP = @ENABLEVENDORHUB
 //  , @DISCOUNTBY_IP = @DISCOUNTBY
-//  , @XTRACHEFACCOUNTMANAGERID_IP = @XTRACHEFACCOUNTMANAGERID
+//  , @HimalayaACCOUNTMANAGERID_IP = @HimalayaACCOUNTMANAGERID
 //  , @SYSTEMTENANT_IP = @SYSTEMTENANT
 //  , @NONUSTENANT_IP = @NONUSTENANT
 //  , @SYNC_EXPIRES_ON_IP = @SYNC_EXPIRES_ON
@@ -973,7 +973,7 @@ namespace Tenant.Query.Repository.Authentication
 //   , ENABLE_CENTRALISED_INVOICE_PROCESSING = @ENABLE_CENTRALISED_INVOICE_PROCESSING_IP
 //   , CENTRALISED_PROCESSING_LOCATION = @CENTRALISED_PROCESSING_LOCATION_IP
 //   , ISENABLE_CENTRALISED_PROCESSING_LOCATION_ONLY = @ISENABLE_CENTRALISED_PROCESSING_LOCATION_ONLY_IP
-//   , ACCOUNT_MANAGER = @XTRACHEFACCOUNTMANAGERID_IP
+//   , ACCOUNT_MANAGER = @HimalayaACCOUNTMANAGERID_IP
 //   , IsSystemTenant = @SYSTEMTENANT_IP
 //   , IsNonUSTenant = @NONUSTENANT_IP
 //  WHERE TENANT_ID = @TENANT_ID_IP
@@ -1123,7 +1123,7 @@ namespace Tenant.Query.Repository.Authentication
 //FROM XC_TENANT_CONFIG XTC
 //INNER JOIN #TCTEMP T ON T.CONFIG_ID = XTC.CONFIG_ID
 
-//    INSERT INTO [DBO].[XC_AUDIT_XTRACHEF](
+//    INSERT INTO [DBO].[XC_AUDIT_Himalaya](
 //     [Guid]
 //     , Internal
 //     , Severity
@@ -1228,7 +1228,7 @@ namespace Tenant.Query.Repository.Authentication
 //   FROM [DBO].[XC_PRODUCT_MASTER_EXTENDED] WITH(NOLOCK)
 //   WHERE TENANT_ID = @TENANT_ID_IP
 
-//   INSERT INTO [DBO].[XC_AUDIT_XTRACHEF](
+//   INSERT INTO [DBO].[XC_AUDIT_Himalaya](
 //    [Guid]
 //    , Internal
 //    , Severity

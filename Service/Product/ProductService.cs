@@ -2050,7 +2050,7 @@ namespace Tenant.Query.Service.Product
                     customerName = $"{request?.ShippingAddress?.FirstName} {request?.ShippingAddress?.LastName}".Trim();
                 }
 
-                var companyName = _configuration["Invoice:CompanyName"] ?? _configuration["Email:FromName"] ?? "xtraCHEF";
+                var companyName = _configuration["Invoice:CompanyName"] ?? _configuration["Email:FromName"] ?? "Himalaya";
                 var shippingAddress = FormatAddress(request?.ShippingAddress);
                 var orderDate = response.CreatedDate == default ? DateTime.UtcNow : response.CreatedDate;
 
@@ -2113,7 +2113,7 @@ namespace Tenant.Query.Service.Product
                 }
 
                 var customerName = $"{user.FirstName} {user.LastName}".Trim();
-                var companyName = _configuration["Invoice:CompanyName"] ?? _configuration["Email:FromName"] ?? "xtraCHEF";
+                var companyName = _configuration["Invoice:CompanyName"] ?? _configuration["Email:FromName"] ?? "Himalaya";
                 var trackingNumber = response?.TrackingNumber ?? request?.TrackingNumber ?? "N/A";
                 var carrier = response?.Carrier ?? request?.Carrier ?? "N/A";
                 var estimatedDelivery = response?.EstimatedDelivery ?? request?.EstimatedDelivery;
@@ -2720,7 +2720,7 @@ namespace Tenant.Query.Service.Product
                     key = razorpayKeyId,
                     amount = request.Amount,
                     currency = request.Currency ?? "INR",
-                    name = "Xtrachef",
+                    name = "Himalaya",
                     description = "Order Payment",
                     order_id = orderId,
                     prefill = new

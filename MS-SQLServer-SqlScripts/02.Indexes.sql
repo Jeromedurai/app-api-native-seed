@@ -1,4 +1,4 @@
-USE [XTRACHEF_DB_DEV]
+USE [himalaya_db]
 GO
 
 -- ====================================== 

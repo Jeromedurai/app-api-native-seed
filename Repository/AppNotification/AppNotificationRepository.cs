@@ -16,7 +16,7 @@ namespace Tenant.Query.Repository.AppNotification
         #region Constructor
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="T:XtraChef.System.Query.Repository.InAppNotification.InAppNotification"/> class.
+        /// Initializes a new instance of the <see cref="T:Himalaya.System.Query.Repository.InAppNotification.InAppNotification"/> class.
         /// </summary>
         /// <param name="dbContext">Db context.</param>
         /// <param name="loggerFactory">Logger factory.</param>

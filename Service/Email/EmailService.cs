@@ -188,7 +188,7 @@ namespace Tenant.Query.Service.Email
                 var smtpUsername = _configuration["Email:SmtpUsername"];
                 var smtpPassword = _configuration["Email:SmtpPassword"];
                 var fromEmail = request.FromEmail ?? _configuration["Email:FromEmail"] ?? smtpUsername;
-                var fromName = request.FromName ?? _configuration["Email:FromName"] ?? "xtraCHEF";
+                var fromName = request.FromName ?? _configuration["Email:FromName"] ?? "Himalaya";
 
                 if (string.IsNullOrEmpty(smtpUsername) || string.IsNullOrEmpty(smtpPassword))
                 {
@@ -314,7 +314,7 @@ namespace Tenant.Query.Service.Email
                 var emailRequest = new SendEmailRequest
                 {
                     To = response.Email,
-                    Subject = "Password Reset OTP - xtraCHEF",
+                    Subject = "Password Reset OTP - Himalaya",
                     TemplateName = "PasswordResetOTP",
                     TemplateData = new Dictionary<string, object>
                     {

@@ -1,4 +1,4 @@
-USE [XTRACHEF_DB_DEV]
+USE [himalaya_db]
     -- Insert Sample Categories
 INSERT INTO Categories (CategoryName, [Description], Menu, Active, OrderBy, Icon, TenantId) VALUES
 ('Brinjal', 'Electronic devices and accessories','Seed', 1, 1, 'fa-laptop', 1),
@@ -31,7 +31,7 @@ UPDATE Categories SET MenuId = (SELECT MenuId FROM MenuMaster WHERE MenuName = '
 WHERE Menu = 'Seed';
 
 -- UPDATE Categories SET MenuId = (SELECT MenuId FROM MenuMaster WHERE MenuName in('Seed','Fruits') AND TenantId = 1)
-use XTRACHEF_DB_DEV
+use Himalaya_DB_DEV
 -- 	
 
 INSERT INTO Products (TenantId, ProductName, ProductDescription, ProductCode, FullDescription, Specification, Story, PackQuantity, Quantity, Total, Price, Category, Rating, Active, Trending, UserBuyCount, [Return], InStock, BestSeller, DeliveryDate, Offer, OrderBy, UserId, Overview, LongDescription, MetaTitle, MetaDescription, MetaKeywords, Slug, SKU, Barcode, Weight, Dimensions, MinStockLevel, MaxStockLevel, ReorderPoint, CostPrice, OriginalPrice, DiscountPercentage, Created, Modified, CreatedBy, ModifiedBy) VALUES

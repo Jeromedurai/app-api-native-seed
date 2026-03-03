@@ -1,4 +1,4 @@
-USE [XTRACHEF_DB_DEV]
+USE [himalaya_db]
 
 -- Drop existing tables in correct order (foreign key dependencies)
 IF OBJECT_ID('Users', 'U') IS NOT NULL DROP TABLE Users;

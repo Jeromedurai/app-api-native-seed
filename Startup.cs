@@ -21,7 +21,7 @@ namespace Tenant.Query
         public IConfiguration Configuration { get; }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="T:XtraChef.Product.Startup"/> class.
+        /// Initializes a new instance of the <see cref="T:Himalaya.Product.Startup"/> class.
         /// </summary>
         /// <param name="env"></param>
         public Startup(IWebHostEnvironment env)
@@ -36,23 +36,24 @@ namespace Tenant.Query
 
             //add user secrets
             builder.AddUserSecrets<Startup>();
+            builder.AddEnvironmentVariables();
 
             Configuration = builder.Build();
             // GJGwAWjB7C2tSSad65NO
             // I0FEO09BK0VEEN9DGJ9FGU8BMQ8DKTSP
-            if (Configuration["ConnectionStrings:Default"] != null && Configuration["ConnectionStrings:Default"].Contains("MultipleActiveResultSets"))
+            if (Configuration["ConnectionStrings:Default"] != null)
             {
-                Configuration["ConnectionStrings:Default"] = Configuration["ConnectionStrings:Default"].Replace("MultipleActiveResultSets=True;", "");
+                Configuration["ConnectionStrings:Default"] = Configuration["ConnectionStrings:Default"];
             }
 
-            if (Configuration["ConnectionStrings:Default_SSL"] != null && Configuration["ConnectionStrings:Default_SSL"].Contains("MultipleActiveResultSets"))
+            if (Configuration["ConnectionStrings:Default_SSL"] != null)
             {
-                Configuration["ConnectionStrings:Default_SSL"] = Configuration["ConnectionStrings:Default_SSL"].Replace("MultipleActiveResultSets=True;", "");
+                Configuration["ConnectionStrings:Default_SSL"] = Configuration["ConnectionStrings:Default_SSL"];
             }
-            string pwd = "esFpBxEH7Q8CBr93";
-            string psw = EnDecrypt(pwd, false);
+            //string pwd = "9FG7dYzx#hbko#y4";
+            //string psw = EnDecrypt(pwd, false);
             
-            //Configuration["AWS.Logging:LogGroup"] = "xtraCHEF.Api.Product";
+            //Configuration["AWS.Logging:LogGroup"] = "Himalaya.Api.Product";
 
             /*** End: API Specific Configuration ***/
         }

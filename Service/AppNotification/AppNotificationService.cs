@@ -20,7 +20,7 @@ namespace Tenant.Query.Service.AppNotification
         #region Constructor
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="T:XtraChef.System.Query.Service.InAppNotification.InAppNotificationService"/> class.
+        /// Initializes a new instance of the <see cref="T:Himalaya.System.Query.Service.InAppNotification.InAppNotificationService"/> class.
         /// </summary>
         /// <param name="loggerFactory">Logger factory.</param>
         /// <param name="xcAuditTime">Xc audit time.</param>
