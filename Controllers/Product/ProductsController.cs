@@ -254,7 +254,7 @@ namespace Tenant.Query.Controllers.Product
         /// <param name="id"></param>
         /// <returns></returns>
         [AllowAnonymous]
-        [HttpGet("{id}")]
+        [HttpGet("{id:long}/image")]
         // [ResponseCache(Duration = 86400)] // Cache for 1 day
         public async Task<IActionResult> GetImage(long id)
         {
@@ -279,7 +279,7 @@ namespace Tenant.Query.Controllers.Product
         /// <param name="id"></param>
         /// <returns></returns>
         [AllowAnonymous]
-        [HttpGet("{id}/thumbnail")]
+        [HttpGet("{id:long}/thumbnail")]
         // [ResponseCache(Duration = 86400)]
         public async Task<IActionResult> GetThumbnail(long id)
         {

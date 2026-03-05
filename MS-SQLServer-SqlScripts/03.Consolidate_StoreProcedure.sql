@@ -331,6 +331,10 @@ IF OBJECT_ID(N'[dbo].[SP_MARK_REVIEW_HELPFUL]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_MARK_REVIEW_HELPFUL];
 GO
 
+IF OBJECT_ID(N'[dbo].[AppSettings]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[[AppSettings]];
+GO
+
 
 CREATE PROCEDURE [dbo].[SP_DELETE_CATEGORY]
 	@CategoryId BIGINT,
@@ -8144,25 +8148,19 @@ BEGIN
 END
 GO
 
--- =============================================
--- App Settings Table + Procedures
--- =============================================
-IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[AppSettings]') AND type in (N'U'))
-BEGIN
-	CREATE TABLE [dbo].[AppSettings](
-		[SettingId] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-		[SettingKey] NVARCHAR(100) NOT NULL,
-		[SettingValue] NVARCHAR(255) NOT NULL,
-		[TenantId] BIGINT NULL,
-		[UserId] BIGINT NULL,
-		[Active] BIT NOT NULL DEFAULT(1),
-		[CreatedAt] DATETIME NOT NULL DEFAULT(GETDATE()),
-		[UpdatedAt] DATETIME NULL
-	);
 
-	CREATE UNIQUE INDEX UX_AppSettings_Key ON [dbo].[AppSettings]([SettingKey], [TenantId], [UserId]);
-END;
-GO
+CREATE TABLE [dbo].[AppSettings](
+	[SettingId] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+	[SettingKey] NVARCHAR(100) NOT NULL,
+	[SettingValue] NVARCHAR(255) NOT NULL,
+	[TenantId] BIGINT NULL,
+	[UserId] BIGINT NULL,
+	[Active] BIT NOT NULL DEFAULT(1),
+	[CreatedAt] DATETIME NOT NULL DEFAULT(GETDATE()),
+	[UpdatedAt] DATETIME NULL
+);
+
+CREATE UNIQUE INDEX UX_AppSettings_Key ON [dbo].[AppSettings]([SettingKey], [TenantId], [UserId]);
 
 IF OBJECT_ID('dbo.SP_GET_APP_SETTINGS', 'P') IS NOT NULL
 	DROP PROCEDURE dbo.SP_GET_APP_SETTINGS;

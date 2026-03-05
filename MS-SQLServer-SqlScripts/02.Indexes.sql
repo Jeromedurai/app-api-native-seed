@@ -268,9 +268,9 @@ ON Orders (SessionId)
 WHERE SessionId IS NOT NULL;
 
 -- Coupon usage tracking (consolidated)
-CREATE NONCLUSTERED INDEX IX_Orders_Coupon 
-ON Orders (CouponId, CouponCode) 
-WHERE (CouponId IS NOT NULL OR CouponCode IS NOT NULL);
+-- CREATE NONCLUSTERED INDEX IX_Orders_Coupon 
+-- ON Orders (CouponId, CouponCode) 
+-- WHERE (CouponId IS NOT NULL OR CouponCode IS NOT NULL);
 
 -- Analytics and reporting (composite covering index)
 CREATE NONCLUSTERED INDEX IX_Orders_Analytics 
