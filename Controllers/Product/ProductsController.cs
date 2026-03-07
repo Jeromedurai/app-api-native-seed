@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
@@ -10,6 +11,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Text.Json;
 using Tenant.API.Base.Controller;
 using Tenant.API.Base.Model;
 using Tenant.Query.Model.Product;
@@ -17,7 +19,9 @@ using Tenant.Query.Model.ProductCart;
 using Tenant.Query.Model.WishList;
 using Tenant.Query.Model.Settings;
 using Tenant.Query.Service.Product;
+using Tenant.Query.Helpers;
 using Exception = System.Exception;
+using Microsoft.AspNetCore.Http.Extensions;
 
 namespace Tenant.Query.Controllers.Product
 {
@@ -35,9 +39,12 @@ namespace Tenant.Query.Controllers.Product
         /// <param name="service"></param>
         /// <param name="configuration"></param>
         /// <param name="loggerFactory"></param>
-        public ProductsController(ProductService service, IConfiguration configuration, ILoggerFactory loggerFactory) : base(service, configuration, loggerFactory)
+        private readonly IWebHostEnvironment _environment;
+
+        public ProductsController(ProductService service, IConfiguration configuration, ILoggerFactory loggerFactory, IWebHostEnvironment environment) : base(service, configuration, loggerFactory)
         {
             this.productService = service;
+            this._environment = environment;
         }
 
         #region New Endpoint 
@@ -353,6 +360,9 @@ namespace Tenant.Query.Controllers.Product
 
         /// <summary>
         /// Get application settings (admin)
+        /// SECURITY: Uses HttpOnly cookies to prevent JavaScript access
+        /// First checks httpOnly cookies - if they exist, returns them without DB call
+        /// If cookies don't exist, fetches from DB and sets httpOnly cookies
         /// </summary>
         [HttpGet]
         [Route("settings")]
@@ -360,7 +370,113 @@ namespace Tenant.Query.Controllers.Product
         {
             try
             {
+                const string COOKIE_NAME = "AppSettings_All";
+                
+                // First, try to read from httpOnly cookies (if they exist from previous call)
+                // Check if cookie exists first - use direct Request.Cookies check for better debugging
+                var cookieValue = Request.Cookies[COOKIE_NAME];
+                var cookieExists = !string.IsNullOrEmpty(cookieValue);
+                
+                // Log all cookies for debugging (only in development)
+                var isProduction = _environment != null && 
+                                  string.Equals(_environment.EnvironmentName, Microsoft.Extensions.Hosting.Environments.Production, StringComparison.OrdinalIgnoreCase);
+                if (!isProduction)
+                {
+                    var allCookies = string.Join(", ", Request.Cookies.Keys.Where(k => k.StartsWith("AppSetting")));
+                    var cookieLength = cookieValue != null ? cookieValue.Length : 0;
+                    this.Logger.LogInformation($"AppSettings check - Cookie '{COOKIE_NAME}' exists: {cookieExists}, Value length: {cookieLength}, All AppSetting cookies: [{allCookies}]");
+                }
+                
+                if (cookieExists && !string.IsNullOrEmpty(cookieValue))
+                {
+                    try
+                    {
+                        // Try to deserialize the cookie directly
+                        var settingsFromCookie = System.Text.Json.JsonSerializer.Deserialize<List<Model.Settings.AppSettingItem>>(
+                            cookieValue, 
+                            new System.Text.Json.JsonSerializerOptions 
+                            { 
+                                PropertyNameCaseInsensitive = true 
+                            });
+                        
+                        if (settingsFromCookie != null && settingsFromCookie.Count > 0)
+                        {
+                            // Validate we have the required settings
+                            var hasMinOrder = settingsFromCookie.Any(s => s.SettingKey == "MIN_ORDER");
+                            var hasFreeDelivery = settingsFromCookie.Any(s => s.SettingKey == "FREE_DELIVERY");
+                            
+                            if (hasMinOrder && hasFreeDelivery)
+                            {
+                                // Return settings from cookies without DB call
+                                var cookieResult = new Model.Settings.GetAppSettingsResponse
+                                {
+                                    Settings = settingsFromCookie
+                                };
+                                
+                                // Refresh cookie expiration (extend cookie lifetime)
+                                HttpOnlyCookieHelper.SetHttpOnlyJsonCookie(Response, _environment, COOKIE_NAME, settingsFromCookie);
+                                
+                                // Log success for debugging
+                                this.Logger.LogInformation($"AppSettings loaded from HttpOnly cookie (no DB call) for tenantId: {tenantId}, Settings count: {settingsFromCookie.Count}");
+                                
+                                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = cookieResult });
+                            }
+                            else
+                            {
+                                this.Logger.LogWarning($"AppSettings cookie exists but missing required keys (MIN_ORDER: {hasMinOrder}, FREE_DELIVERY: {hasFreeDelivery}). Settings in cookie: {string.Join(", ", settingsFromCookie.Select(s => s.SettingKey))}");
+                            }
+                        }
+                        else
+                        {
+                            // cookieValue is guaranteed to be non-null here due to the outer if condition
+                            var previewLength = Math.Min(100, cookieValue.Length);
+                            var preview = cookieValue.Substring(0, previewLength);
+                            this.Logger.LogWarning($"AppSettings cookie exists but deserialization returned null or empty list. Cookie value preview: {preview}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // Cookie exists but deserialization failed - log and continue to DB
+                        var cookieLength = cookieValue != null ? cookieValue.Length : 0;
+                        this.Logger.LogWarning(ex, $"Failed to deserialize AppSettings cookie (value length: {cookieLength}), fetching from DB");
+                    }
+                }
+                else
+                {
+                    this.Logger.LogInformation($"AppSettings cookie not found (cookieExists: {cookieExists}), fetching from DB");
+                }
+                
+                // Cookies don't exist or are invalid - fetch from DB and set cookies
+                this.Logger.LogInformation($"Fetching AppSettings from DB for tenantId: {tenantId}, userId: {userId}");
                 var result = this.Service.GetAppSettings(tenantId, userId);
+                
+                // Set httpOnly cookies securely for each setting value
+                // HttpOnly = true prevents JavaScript access (XSS protection)
+                if (result?.Settings != null && result.Settings.Count > 0)
+                {
+                    // Set individual cookies for each setting
+                    foreach (var setting in result.Settings)
+                    {
+                        if (setting != null && !string.IsNullOrWhiteSpace(setting.SettingKey))
+                        {
+                            var cookieName = $"AppSetting_{setting.SettingKey}";
+                            HttpOnlyCookieHelper.SetHttpOnlyCookie(
+                                Response, 
+                                _environment, 
+                                cookieName, 
+                                setting.SettingValue ?? string.Empty);
+                        }
+                    }
+                    
+                    // Set combined cookie with all settings as JSON (for efficient server-side reading)
+                    HttpOnlyCookieHelper.SetHttpOnlyJsonCookie(Response, _environment, COOKIE_NAME, result.Settings);
+                    this.Logger.LogInformation($"AppSettings saved to HttpOnly cookies ({result.Settings.Count} settings)");
+                }
+                else
+                {
+                    this.Logger.LogWarning($"AppSettings from DB is null or empty");
+                }
+                
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
             }
             catch (Exception ex)
@@ -371,6 +487,7 @@ namespace Tenant.Query.Controllers.Product
 
         /// <summary>
         /// Save application settings (admin)
+        /// SECURITY: Updates httpOnly cookies after saving to ensure consistency
         /// </summary>
         [HttpPost]
         [Route("settings")]
@@ -384,6 +501,31 @@ namespace Tenant.Query.Controllers.Product
                 }
 
                 var result = this.Service.SaveAppSettings(request);
+                
+                // Update httpOnly cookies after saving settings
+                // Use request.Settings since SaveAppSettingsResponse doesn't contain Settings
+                const string COOKIE_NAME = "AppSettings_All";
+                
+                if (result?.Success == true && request?.Settings != null && request.Settings.Count > 0)
+                {
+                    // Set individual cookies for each setting
+                    foreach (var setting in request.Settings)
+                    {
+                        if (setting != null && !string.IsNullOrWhiteSpace(setting.SettingKey))
+                        {
+                            var cookieName = $"AppSetting_{setting.SettingKey}";
+                            HttpOnlyCookieHelper.SetHttpOnlyCookie(
+                                Response, 
+                                _environment, 
+                                cookieName, 
+                                setting.SettingValue ?? string.Empty);
+                        }
+                    }
+                    
+                    // Update combined cookie with all settings
+                    HttpOnlyCookieHelper.SetHttpOnlyJsonCookie(Response, _environment, COOKIE_NAME, request.Settings);
+                }
+                
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
             }
             catch (Exception ex)

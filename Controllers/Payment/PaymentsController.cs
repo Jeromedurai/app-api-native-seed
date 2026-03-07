@@ -132,16 +132,58 @@ namespace Tenant.Query.Controllers.Payment
                 
                 // Validate return URL domain
                 var returnDomain = $"{returnUri.Host}{(returnUri.IsDefaultPort ? "" : $":{returnUri.Port}")}";
-                if (!allowedDomains.Any(d => returnDomain.Equals(d.Trim(), StringComparison.OrdinalIgnoreCase) || returnDomain.EndsWith($".{d.Trim()}", StringComparison.OrdinalIgnoreCase)))
+                var returnDomainWithoutPort = returnUri.Host;
+                
+                // Check if domain matches whitelist (with or without port, with or without www)
+                var domainMatches = allowedDomains.Any(d => 
                 {
-                    return BadRequest(new { success = false, message = "Return URL domain is not in the allowed whitelist", error = "Unauthorized return URL domain" });
+                    var cleanDomain = d.Trim();
+                    return returnDomain.Equals(cleanDomain, StringComparison.OrdinalIgnoreCase) ||
+                           returnDomainWithoutPort.Equals(cleanDomain, StringComparison.OrdinalIgnoreCase) ||
+                           returnDomain.EndsWith($".{cleanDomain}", StringComparison.OrdinalIgnoreCase) ||
+                           returnDomainWithoutPort.EndsWith($".{cleanDomain}", StringComparison.OrdinalIgnoreCase) ||
+                           // Handle www subdomain matching
+                           (returnDomainWithoutPort.StartsWith("www.") && returnDomainWithoutPort.Substring(4).Equals(cleanDomain, StringComparison.OrdinalIgnoreCase)) ||
+                           (!returnDomainWithoutPort.StartsWith("www.") && $"www.{returnDomainWithoutPort}".Equals(cleanDomain, StringComparison.OrdinalIgnoreCase));
+                });
+                
+                if (!domainMatches)
+                {
+                    return BadRequest(new { 
+                        success = false, 
+                        message = $"Return URL domain '{returnDomain}' is not in the allowed whitelist. Allowed domains: {string.Join(", ", allowedDomains)}", 
+                        error = "Unauthorized return URL domain",
+                        receivedDomain = returnDomain,
+                        allowedDomains = allowedDomains
+                    });
                 }
 
                 // Validate cancel URL domain
                 var cancelDomain = $"{cancelUri.Host}{(cancelUri.IsDefaultPort ? "" : $":{cancelUri.Port}")}";
-                if (!allowedDomains.Any(d => cancelDomain.Equals(d.Trim(), StringComparison.OrdinalIgnoreCase) || cancelDomain.EndsWith($".{d.Trim()}", StringComparison.OrdinalIgnoreCase)))
+                var cancelDomainWithoutPort = cancelUri.Host;
+                
+                // Check if domain matches whitelist (with or without port, with or without www)
+                var cancelDomainMatches = allowedDomains.Any(d => 
                 {
-                    return BadRequest(new { success = false, message = "Cancel URL domain is not in the allowed whitelist", error = "Unauthorized cancel URL domain" });
+                    var cleanDomain = d.Trim();
+                    return cancelDomain.Equals(cleanDomain, StringComparison.OrdinalIgnoreCase) ||
+                           cancelDomainWithoutPort.Equals(cleanDomain, StringComparison.OrdinalIgnoreCase) ||
+                           cancelDomain.EndsWith($".{cleanDomain}", StringComparison.OrdinalIgnoreCase) ||
+                           cancelDomainWithoutPort.EndsWith($".{cleanDomain}", StringComparison.OrdinalIgnoreCase) ||
+                           // Handle www subdomain matching
+                           (cancelDomainWithoutPort.StartsWith("www.") && cancelDomainWithoutPort.Substring(4).Equals(cleanDomain, StringComparison.OrdinalIgnoreCase)) ||
+                           (!cancelDomainWithoutPort.StartsWith("www.") && $"www.{cancelDomainWithoutPort}".Equals(cleanDomain, StringComparison.OrdinalIgnoreCase));
+                });
+                
+                if (!cancelDomainMatches)
+                {
+                    return BadRequest(new { 
+                        success = false, 
+                        message = $"Cancel URL domain '{cancelDomain}' is not in the allowed whitelist. Allowed domains: {string.Join(", ", allowedDomains)}", 
+                        error = "Unauthorized cancel URL domain",
+                        receivedDomain = cancelDomain,
+                        allowedDomains = allowedDomains
+                    });
                 }
 
                 // Validate HTTPS in production

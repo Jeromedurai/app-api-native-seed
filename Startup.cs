@@ -13,12 +13,14 @@ using System;
 using System.Text;
 using System.IO;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Tenant.Query
 {
     public class Startup
     {
         public IConfiguration Configuration { get; }
+        public IWebHostEnvironment Environment { get; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="T:Himalaya.Product.Startup"/> class.
@@ -26,6 +28,7 @@ namespace Tenant.Query
         /// <param name="env"></param>
         public Startup(IWebHostEnvironment env)
         {
+            Environment = env;
             //initialize the startup
             IConfigurationBuilder builder = TnBaseStartup.InitializeStartup(env);
 
@@ -61,6 +64,37 @@ namespace Tenant.Query
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
+            // Configure CORS - MUST be added before other services
+            var allowedOrigins = Configuration["CORS:AllowedOrigins"]?.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                ?? new[] { "http://localhost:3000", "https://localhost:3000", "http://localhost:5002", "https://localhost:5002" };
+            
+            // Trim whitespace from origins
+            var trimmedOrigins = allowedOrigins.Select(o => o.Trim()).ToArray();
+            
+            // Log allowed origins for debugging
+            System.Diagnostics.Debug.WriteLine($"CORS Allowed Origins: {string.Join(", ", trimmedOrigins)}");
+            
+            services.AddCors(options =>
+            {
+                // Named policy for production with specific origins
+                options.AddPolicy("AllowFrontend", builder =>
+                {
+                    builder.WithOrigins(trimmedOrigins)
+                           .AllowAnyMethod()
+                           .AllowAnyHeader()
+                           .AllowCredentials()
+                           .SetPreflightMaxAge(TimeSpan.FromHours(1));
+                });
+                
+                // Default policy for development - allows all origins
+                options.AddDefaultPolicy(builder =>
+                {
+                    builder.AllowAnyOrigin()
+                           .AllowAnyMethod()
+                           .AllowAnyHeader();
+                });
+            });
+
             //initialize base services
             TnBaseStartup.InitializeServices(Configuration, services);
             services.AddMvc().AddNewtonsoftJson();
@@ -174,6 +208,10 @@ namespace Tenant.Query
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env, ILoggerFactory loggerFactory)
         {
+            // Enable CORS as the FIRST middleware - must be before any other middleware
+            // Always use the named policy - it works for both development and production
+            app.UseCors("AllowFrontend");
+            
             //initialize application with base pipeline
             TnBaseStartup.InitializeApplication(Configuration, app, env, loggerFactory);
 
