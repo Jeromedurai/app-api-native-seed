@@ -37,7 +37,7 @@ namespace Tenant.Query.Repository.Address
                 var result = await Task.Run(() => _dataAccess.ExecuteDataset(
                     Constant.StoredProcedures.SP_GET_USER_ADDRESSES,
                     userId,
-                    activeOnly ? 1 : 0
+                    activeOnly ? 1 : 0  
                 ));
 
                 var addresses = new List<AddressResponse>();

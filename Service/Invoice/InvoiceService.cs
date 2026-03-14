@@ -5,6 +5,7 @@ using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Tenant.Query.Model.Order;
 
@@ -48,6 +49,10 @@ namespace Tenant.Query.Service.Invoice
                 var companyEmail = _configuration["Invoice:CompanyEmail"] ?? "";
                 var companyGST = _configuration["Invoice:CompanyGST"] ?? "";
 
+                // Logo path: wwwroot/images/logo.png next to the executable
+                var logoPath = Path.Combine(AppContext.BaseDirectory, "wwwroot", "images", "logo.png");
+                var hasLogo = File.Exists(logoPath);
+
                 // Parse shipping address
                 var shippingAddress = ParseAddress(order.ShippingAddress);
                 var customerName = GetCustomerName(shippingAddress);
@@ -67,20 +72,31 @@ namespace Tenant.Query.Service.Invoice
                         page.Header()
                             .Row(row =>
                             {
-                                row.RelativeItem().Column(column =>
+                                row.RelativeItem().Row(logoRow =>
                                 {
-                                    column.Item().Text(companyName).FontSize(20).FontFamily(Fonts.Calibri).Bold().FontColor(Colors.Green.Darken3);
-                                    if (!string.IsNullOrEmpty(companyAddress))
-                                        column.Item().Text(companyAddress).FontSize(9);
-                                    if (!string.IsNullOrEmpty(companyPhone))
-                                        column.Item().Text($"Phone: {companyPhone}").FontSize(9);
-                                    if (!string.IsNullOrEmpty(companyEmail))
-                                        column.Item().Text($"Email: {companyEmail}").FontSize(9);
-                                    if (!string.IsNullOrEmpty(companyGST))
-                                        column.Item().Text($"GSTIN: {companyGST}").FontSize(9);
+                                    // Logo
+                                    if (hasLogo)
+                                    {
+                                        logoRow.ConstantItem(52).PaddingRight(10)
+                                            .Image(logoPath).FitHeight();
+                                    }
+
+                                    // Company details
+                                    logoRow.RelativeItem().Column(column =>
+                                    {
+                                        column.Item().Text(companyName).FontSize(18).FontFamily(Fonts.Calibri).Bold().FontColor(Colors.Green.Darken3);
+                                        if (!string.IsNullOrEmpty(companyAddress))
+                                            column.Item().Text(companyAddress).FontSize(9);
+                                        if (!string.IsNullOrEmpty(companyPhone))
+                                            column.Item().Text($"Phone: {companyPhone}").FontSize(9);
+                                        if (!string.IsNullOrEmpty(companyEmail))
+                                            column.Item().Text($"Email: {companyEmail}").FontSize(9);
+                                        if (!string.IsNullOrEmpty(companyGST))
+                                            column.Item().Text($"GSTIN: {companyGST}").FontSize(9);
+                                    });
                                 });
 
-                                row.ConstantItem(100).AlignRight().Column(column =>
+                                row.ConstantItem(110).AlignRight().Column(column =>
                                 {
                                     column.Item().Text("INVOICE").FontSize(24).Bold().FontColor(Colors.Green.Darken3);
                                     column.Item().Text($"Invoice #: {order.OrderNumber}").FontSize(10);

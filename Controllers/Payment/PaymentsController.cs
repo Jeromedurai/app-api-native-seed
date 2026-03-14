@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Swashbuckle.AspNetCore.Annotations;
 using System;
@@ -20,6 +20,7 @@ namespace Tenant.Query.Controllers.Payment
     {
         #region Initialize the value
         Service.Product.ProductService productService;
+        private readonly IWebHostEnvironment _environment;
         #endregion
 
         /// <summary>
@@ -28,9 +29,11 @@ namespace Tenant.Query.Controllers.Payment
         /// <param name="service"></param>
         /// <param name="configuration"></param>
         /// <param name="loggerFactory"></param>
-        public PaymentsController(ProductService service, IConfiguration configuration, ILoggerFactory loggerFactory) : base(service, configuration, loggerFactory)
+        /// <param name="environment"></param>
+        public PaymentsController(ProductService service, IConfiguration configuration, ILoggerFactory loggerFactory, IWebHostEnvironment environment) : base(service, configuration, loggerFactory)
         {
             this.productService = service;
+            this._environment = environment;
         }
 
         /// <summary>
@@ -124,71 +127,55 @@ namespace Tenant.Query.Controllers.Payment
                     return BadRequest(new { success = false, message = "Cancel URL must be a valid URL", error = "Invalid cancel URL format" });
                 }
 
-                // Validate URLs against whitelist and HTTPS requirement
-                var allowedDomains = Configuration["Razorpay:AllowedDomains"]?.Split(',', StringSplitOptions.RemoveEmptyEntries) 
-                    ?? new[] { "localhost:3000", "yourdomain.com", "www.yourdomain.com" };
-                
-                var isProduction = Configuration["Environment"]?.Equals("Production", StringComparison.OrdinalIgnoreCase) == true;
-                
-                // Validate return URL domain
-                var returnDomain = $"{returnUri.Host}{(returnUri.IsDefaultPort ? "" : $":{returnUri.Port}")}";
-                var returnDomainWithoutPort = returnUri.Host;
-                
-                // Check if domain matches whitelist (with or without port, with or without www)
-                var domainMatches = allowedDomains.Any(d => 
-                {
-                    var cleanDomain = d.Trim();
-                    return returnDomain.Equals(cleanDomain, StringComparison.OrdinalIgnoreCase) ||
-                           returnDomainWithoutPort.Equals(cleanDomain, StringComparison.OrdinalIgnoreCase) ||
-                           returnDomain.EndsWith($".{cleanDomain}", StringComparison.OrdinalIgnoreCase) ||
-                           returnDomainWithoutPort.EndsWith($".{cleanDomain}", StringComparison.OrdinalIgnoreCase) ||
-                           // Handle www subdomain matching
-                           (returnDomainWithoutPort.StartsWith("www.") && returnDomainWithoutPort.Substring(4).Equals(cleanDomain, StringComparison.OrdinalIgnoreCase)) ||
-                           (!returnDomainWithoutPort.StartsWith("www.") && $"www.{returnDomainWithoutPort}".Equals(cleanDomain, StringComparison.OrdinalIgnoreCase));
-                });
-                
-                if (!domainMatches)
-                {
-                    return BadRequest(new { 
-                        success = false, 
-                        message = $"Return URL domain '{returnDomain}' is not in the allowed whitelist. Allowed domains: {string.Join(", ", allowedDomains)}", 
-                        error = "Unauthorized return URL domain",
-                        receivedDomain = returnDomain,
-                        allowedDomains = allowedDomains
-                    });
-                }
+                var isProduction = _environment.EnvironmentName.Equals("Production", StringComparison.OrdinalIgnoreCase);
 
-                // Validate cancel URL domain
-                var cancelDomain = $"{cancelUri.Host}{(cancelUri.IsDefaultPort ? "" : $":{cancelUri.Port}")}";
-                var cancelDomainWithoutPort = cancelUri.Host;
-                
-                // Check if domain matches whitelist (with or without port, with or without www)
-                var cancelDomainMatches = allowedDomains.Any(d => 
-                {
-                    var cleanDomain = d.Trim();
-                    return cancelDomain.Equals(cleanDomain, StringComparison.OrdinalIgnoreCase) ||
-                           cancelDomainWithoutPort.Equals(cleanDomain, StringComparison.OrdinalIgnoreCase) ||
-                           cancelDomain.EndsWith($".{cleanDomain}", StringComparison.OrdinalIgnoreCase) ||
-                           cancelDomainWithoutPort.EndsWith($".{cleanDomain}", StringComparison.OrdinalIgnoreCase) ||
-                           // Handle www subdomain matching
-                           (cancelDomainWithoutPort.StartsWith("www.") && cancelDomainWithoutPort.Substring(4).Equals(cleanDomain, StringComparison.OrdinalIgnoreCase)) ||
-                           (!cancelDomainWithoutPort.StartsWith("www.") && $"www.{cancelDomainWithoutPort}".Equals(cleanDomain, StringComparison.OrdinalIgnoreCase));
-                });
-                
-                if (!cancelDomainMatches)
-                {
-                    return BadRequest(new { 
-                        success = false, 
-                        message = $"Cancel URL domain '{cancelDomain}' is not in the allowed whitelist. Allowed domains: {string.Join(", ", allowedDomains)}", 
-                        error = "Unauthorized cancel URL domain",
-                        receivedDomain = cancelDomain,
-                        allowedDomains = allowedDomains
-                    });
-                }
-
-                // Validate HTTPS in production
+                // Domain whitelist validation — enforced in Production only
                 if (isProduction)
                 {
+                    var allowedDomains = Configuration["Razorpay:AllowedDomains"]?.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        ?? new[] { "yourdomain.com", "www.yourdomain.com" };
+
+                    // Validate return URL domain
+                    var returnDomain = $"{returnUri.Host}{(returnUri.IsDefaultPort ? "" : $":{returnUri.Port}")}";
+                    var returnDomainWithoutPort = returnUri.Host;
+
+                    var domainMatches = allowedDomains.Any(d =>
+                    {
+                        var cleanDomain = d.Trim();
+                        return returnDomain.Equals(cleanDomain, StringComparison.OrdinalIgnoreCase) ||
+                               returnDomainWithoutPort.Equals(cleanDomain, StringComparison.OrdinalIgnoreCase) ||
+                               returnDomain.EndsWith($".{cleanDomain}", StringComparison.OrdinalIgnoreCase) ||
+                               returnDomainWithoutPort.EndsWith($".{cleanDomain}", StringComparison.OrdinalIgnoreCase) ||
+                               (returnDomainWithoutPort.StartsWith("www.") && returnDomainWithoutPort.Substring(4).Equals(cleanDomain, StringComparison.OrdinalIgnoreCase)) ||
+                               (!returnDomainWithoutPort.StartsWith("www.") && $"www.{returnDomainWithoutPort}".Equals(cleanDomain, StringComparison.OrdinalIgnoreCase));
+                    });
+
+                    if (!domainMatches)
+                    {
+                        return BadRequest(new { success = false, message = "Return URL domain is not authorized", error = "Unauthorized return URL domain" });
+                    }
+
+                    // Validate cancel URL domain
+                    var cancelDomain = $"{cancelUri.Host}{(cancelUri.IsDefaultPort ? "" : $":{cancelUri.Port}")}";
+                    var cancelDomainWithoutPort = cancelUri.Host;
+
+                    var cancelDomainMatches = allowedDomains.Any(d =>
+                    {
+                        var cleanDomain = d.Trim();
+                        return cancelDomain.Equals(cleanDomain, StringComparison.OrdinalIgnoreCase) ||
+                               cancelDomainWithoutPort.Equals(cleanDomain, StringComparison.OrdinalIgnoreCase) ||
+                               cancelDomain.EndsWith($".{cleanDomain}", StringComparison.OrdinalIgnoreCase) ||
+                               cancelDomainWithoutPort.EndsWith($".{cleanDomain}", StringComparison.OrdinalIgnoreCase) ||
+                               (cancelDomainWithoutPort.StartsWith("www.") && cancelDomainWithoutPort.Substring(4).Equals(cleanDomain, StringComparison.OrdinalIgnoreCase)) ||
+                               (!cancelDomainWithoutPort.StartsWith("www.") && $"www.{cancelDomainWithoutPort}".Equals(cleanDomain, StringComparison.OrdinalIgnoreCase));
+                    });
+
+                    if (!cancelDomainMatches)
+                    {
+                        return BadRequest(new { success = false, message = "Cancel URL domain is not authorized", error = "Unauthorized cancel URL domain" });
+                    }
+
+                    // Validate HTTPS in production
                     if (returnUri.Scheme != "https")
                     {
                         return BadRequest(new { success = false, message = "Return URL must use HTTPS in production", error = "HTTPS required for return URL" });
@@ -326,6 +313,7 @@ namespace Tenant.Query.Controllers.Payment
         /// </summary>
         /// <param name="request">Payment verification request</param>
         /// <returns>Payment verification response</returns>
+        [Authorize]
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status404NotFound, "Not Found", typeof(ApiResult))]
@@ -557,6 +545,7 @@ namespace Tenant.Query.Controllers.Payment
         /// </summary>
         /// <param name="request">Mark payment failed request</param>
         /// <returns>Mark payment failed response</returns>
+        [Authorize]
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
@@ -626,6 +615,7 @@ namespace Tenant.Query.Controllers.Payment
         /// </summary>
         /// <param name="razorpayOrderId">Razorpay Order ID</param>
         /// <returns>Payment status response</returns>
+        [Authorize]
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status404NotFound, "Not Found", typeof(ApiResult))]
