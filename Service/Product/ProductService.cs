@@ -2046,15 +2046,12 @@ namespace Tenant.Query.Service.Product
 
                 var customerName = $"{request?.ShippingAddress?.FirstName} {request?.ShippingAddress?.LastName}".Trim();
 
-                var companyName = _configuration["Invoice:CompanyName"] ?? _configuration["Email:FromName"] ?? "Himalaya";
+                var companyName = _configuration["Invoice:CompanyName"] ?? _configuration["Email:FromName"] ?? "Himalaya Nursery";
                 var shippingAddress = FormatAddress(request?.ShippingAddress);
                 var orderDate = response.CreatedDate == default ? DateTime.UtcNow : response.CreatedDate;
 
-                // Embed logo as base64 for email
-                var logoPath = System.IO.Path.Combine(AppContext.BaseDirectory, "wwwroot", "images", "logo.png");
-                var logoBase64 = System.IO.File.Exists(logoPath)
-                    ? Convert.ToBase64String(System.IO.File.ReadAllBytes(logoPath))
-                    : string.Empty;
+                var baseUrl = _configuration["BaseUrl"] ?? "https://api.himalayanursery.co.in";
+                var logoUrl = $"{baseUrl.TrimEnd('/')}/images/logo.png";
 
                 var emailRequest = new SendEmailRequest
                 {
@@ -2068,11 +2065,11 @@ namespace Tenant.Query.Service.Product
                         { "OrderNumber", response.OrderNumber ?? response.OrderId.ToString() },
                         { "OrderDate", orderDate.ToString("dd MMM yyyy") },
                         { "ItemCount", response.ItemCount },
-                        { "TotalAmount", $"₹{response.TotalAmount:F2}" },
+                        { "TotalAmount", $"Rs.{response.TotalAmount:F2}" },
                         { "OrderStatus", response.OrderStatus ?? "Pending" },
                         { "PaymentStatus", response.PaymentStatus ?? "Pending" },
                         { "ShippingAddress", shippingAddress },
-                        { "LogoBase64", logoBase64 }
+                        { "LogoUrl", logoUrl }
                     }
                 };
 
@@ -2116,7 +2113,7 @@ namespace Tenant.Query.Service.Product
                 }
 
                 var customerName = $"{user.FirstName} {user.LastName}".Trim();
-                var companyName = _configuration["Invoice:CompanyName"] ?? _configuration["Email:FromName"] ?? "Himalaya";
+                var companyName = _configuration["Invoice:CompanyName"] ?? _configuration["Email:FromName"] ?? "Himalaya Nursery";
                 var trackingNumber = response?.TrackingNumber ?? request?.TrackingNumber ?? "N/A";
                 var carrier = response?.Carrier ?? request?.Carrier ?? "N/A";
                 var estimatedDelivery = response?.EstimatedDelivery ?? request?.EstimatedDelivery;
@@ -2723,7 +2720,7 @@ namespace Tenant.Query.Service.Product
                     key = razorpayKeyId,
                     amount = request.Amount,
                     currency = request.Currency ?? "INR",
-                    name = "Himalaya",
+                    name = "Himalaya Nursery",
                     description = "Order Payment",
                     order_id = orderId,
                     prefill = new

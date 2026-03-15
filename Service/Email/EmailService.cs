@@ -184,7 +184,8 @@ namespace Tenant.Query.Service.Email
 
                 // Get email configuration
                 var smtpHost = _configuration["Email:SmtpHost"] ?? "smtp.gmail.com";
-                var smtpPort = int.Parse(_configuration["Email:SmtpPort"] ?? "587");
+                var smtpPortStr = _configuration["Email:SmtpPort"];
+                var smtpPort = int.TryParse(smtpPortStr, out var parsedPort) ? parsedPort : 587;
                 var smtpUsername = _configuration["Email:SmtpUsername"];
                 var smtpPassword = _configuration["Email:SmtpPassword"];
                 var fromEmail = request.FromEmail ?? _configuration["Email:FromEmail"] ?? smtpUsername;
@@ -314,7 +315,7 @@ namespace Tenant.Query.Service.Email
                 var emailRequest = new SendEmailRequest
                 {
                     To = response.Email,
-                    Subject = "Password Reset OTP - Himalaya",
+                    Subject = "Password Reset OTP - Himalaya Nursery",
                     TemplateName = "PasswordResetOTP",
                     TemplateData = new Dictionary<string, object>
                     {

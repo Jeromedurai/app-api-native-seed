@@ -87,9 +87,9 @@
 <body>
     <div class="container">
         <div class="header">
-            @if (!string.IsNullOrEmpty(Model.LogoBase64 as string))
+            @if (!string.IsNullOrEmpty(Model.LogoUrl as string))
             {
-                <img class="logo-img" src="data:image/png;base64,@Model.LogoBase64" alt="@Model.CompanyName logo" />
+                <img class="logo-img" src="@Model.LogoUrl" alt="@Model.CompanyName logo" />
             }
             <div class="logo">@Model.CompanyName</div>
             <h2 class="title">Order Confirmation</h2>

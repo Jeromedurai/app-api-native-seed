@@ -703,6 +703,25 @@ CREATE TABLE [dbo].[PasswordResetOTPs] (
 );
 GO
 
+IF OBJECT_ID('dbo.ContactMessages', 'U') IS NULL
+BEGIN
+    CREATE TABLE ContactMessages
+    (
+        Id BIGINT IDENTITY(1,1) NOT NULL,
+        UserId BIGINT NULL,
+        TenantId BIGINT NULL,
+        Name NVARCHAR(100) NOT NULL,
+        Email NVARCHAR(256) NOT NULL,
+        Phone NVARCHAR(32) NULL,
+        Subject NVARCHAR(100) NULL,
+        Message NVARCHAR(2000) NOT NULL,
+        Language NVARCHAR(10) NULL,
+        Source NVARCHAR(100) NULL,
+        CreatedAt DATETIME2(7) DEFAULT GETUTCDATE() NOT NULL,
+        CONSTRAINT PK_ContactMessages PRIMARY KEY CLUSTERED (Id)
+    );
+END;
+
 -- -- Order Analytics Table
 -- CREATE TABLE OrderAnalytics (
 -- 	AnalyticsId BIGINT IDENTITY(1,1) NOT NULL,
@@ -866,6 +885,9 @@ GO
 -- 	UpdatedAt DATETIME2(7) DEFAULT GETUTCDATE() NOT NULL,
 -- 	CONSTRAINT PK_PasswordResetTokens PRIMARY KEY CLUSTERED (ResetTokenId)
 -- );
+
+-- Contact Messages (public contact us form)
+
 
 -- -- User Notifications Table
 -- CREATE TABLE UserNotifications (

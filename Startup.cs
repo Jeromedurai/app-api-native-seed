@@ -35,7 +35,7 @@ namespace Tenant.Query
             /*** Begin: API Specific Configuration ***/
 
             //set version number
-            TnBaseStartup.Version = "1.0";
+            TnBaseStartup.Version = "v1";
 
             //add user secrets
             builder.AddUserSecrets<Startup>();
@@ -53,9 +53,9 @@ namespace Tenant.Query
             {
                 Configuration["ConnectionStrings:Default_SSL"] = Configuration["ConnectionStrings:Default_SSL"];
             }
-            //string pwd = "9FG7dYzx#hbko#y4";
-            //string psw = EnDecrypt(pwd, false);
-            
+            // string pwd = "9FG7dYzx#hbko#y4";
+            // string psw = EnDecrypt(pwd, false);
+
             //Configuration["AWS.Logging:LogGroup"] = "Himalaya.Api.Product";
 
             /*** End: API Specific Configuration ***/
@@ -194,6 +194,10 @@ namespace Tenant.Query
             // Initialize scoped instance for address
             services.AddScoped(typeof(Service.Address.AddressService), typeof(Service.Address.AddressService));
             services.AddScoped(typeof(Repository.Address.AddressRepository), typeof(Repository.Address.AddressRepository));
+
+            // Initialize scoped instance for contact messages
+            services.AddScoped(typeof(Service.Contact.ContactService), typeof(Service.Contact.ContactService));
+            services.AddScoped(typeof(Repository.Contact.ContactRepository), typeof(Repository.Contact.ContactRepository));
 
             //Register the swagger generator, defining one or more swagger documnets
             services.AddSwaggerGen(c =>

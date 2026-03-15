@@ -43,7 +43,7 @@ namespace Tenant.Query.Service.Invoice
 
                 _logger.LogInformation($"Generating PDF for OrderId={order.OrderId}, OrderNumber={order.OrderNumber}");
 
-                var companyName = _configuration["Invoice:CompanyName"] ?? "Himalaya";
+                var companyName = _configuration["Invoice:CompanyName"] ?? "Himalaya Nursery";
                 var companyAddress = _configuration["Invoice:CompanyAddress"] ?? "";
                 var companyPhone = _configuration["Invoice:CompanyPhone"] ?? "";
                 var companyEmail = _configuration["Invoice:CompanyEmail"] ?? "";
@@ -77,8 +77,8 @@ namespace Tenant.Query.Service.Invoice
                                     // Logo
                                     if (hasLogo)
                                     {
-                                        logoRow.ConstantItem(52).PaddingRight(10)
-                                            .Image(logoPath).FitHeight();
+                                        logoRow.ConstantItem(52).Height(52).PaddingRight(10)
+                                            .Image(logoPath).FitArea();
                                     }
 
                                     // Company details
@@ -172,9 +172,9 @@ namespace Tenant.Query.Service.Invoice
                                             });
                                             
                                             table.Cell().Element(CellStyle).AlignRight().Text((item?.Quantity ?? 0).ToString());
-                                            table.Cell().Element(CellStyle).AlignRight().Text($"₹{(item?.Price ?? 0):F2}");
-                                            table.Cell().Element(CellStyle).AlignRight().Text("₹0.00"); // Discount not in OrderItemDetail
-                                            table.Cell().Element(CellStyle).AlignRight().Text($"₹{(item?.Total ?? 0):F2}");
+                                            table.Cell().Element(CellStyle).AlignRight().Text($"Rs.{(item?.Price ?? 0):F2}");
+                                            table.Cell().Element(CellStyle).AlignRight().Text("Rs.0.00");
+                                            table.Cell().Element(CellStyle).AlignRight().Text($"Rs.{(item?.Total ?? 0):F2}");
                                         }
                                     }
                                 });
@@ -182,46 +182,50 @@ namespace Tenant.Query.Service.Invoice
                                 column.Item().PaddingTop(20);
 
                                 // Summary
-                                column.Item().AlignRight().Column(summaryColumn =>
+                                column.Item().Row(outerRow =>
                                 {
-                                    summaryColumn.Item().Row(row =>
-                                    {
-                                        row.ConstantItem(100).Text("Subtotal:").FontSize(10);
-                                        row.ConstantItem(100).AlignRight().Text($"₹{order.Subtotal:F2}").FontSize(10);
-                                    });
-
-                                    if (order.ShippingAmount > 0)
+                                    outerRow.RelativeItem();
+                                    outerRow.ConstantItem(220).Column(summaryColumn =>
                                     {
                                         summaryColumn.Item().Row(row =>
                                         {
-                                            row.ConstantItem(100).Text("Shipping:").FontSize(10);
-                                            row.ConstantItem(100).AlignRight().Text($"₹{order.ShippingAmount:F2}").FontSize(10);
+                                            row.RelativeItem().Text("Subtotal:").FontSize(10);
+                                            row.ConstantItem(100).AlignRight().Text($"Rs.{order.Subtotal:F2}").FontSize(10);
                                         });
-                                    }
 
-                                    if (order.TaxAmount > 0)
-                                    {
+                                        if (order.ShippingAmount > 0)
+                                        {
+                                            summaryColumn.Item().Row(row =>
+                                            {
+                                                row.RelativeItem().Text("Shipping:").FontSize(10);
+                                                row.ConstantItem(100).AlignRight().Text($"Rs.{order.ShippingAmount:F2}").FontSize(10);
+                                            });
+                                        }
+
+                                        if (order.TaxAmount > 0)
+                                        {
+                                            summaryColumn.Item().Row(row =>
+                                            {
+                                                row.RelativeItem().Text("Tax:").FontSize(10);
+                                                row.ConstantItem(100).AlignRight().Text($"Rs.{order.TaxAmount:F2}").FontSize(10);
+                                            });
+                                        }
+
+                                        if (order.DiscountAmount > 0)
+                                        {
+                                            summaryColumn.Item().Row(row =>
+                                            {
+                                                row.RelativeItem().Text("Discount:").FontSize(10).FontColor(Colors.Red.Medium);
+                                                row.ConstantItem(100).AlignRight().Text($"-Rs.{order.DiscountAmount:F2}").FontSize(10).FontColor(Colors.Red.Medium);
+                                            });
+                                        }
+
+                                        summaryColumn.Item().PaddingTop(5);
                                         summaryColumn.Item().Row(row =>
                                         {
-                                            row.ConstantItem(100).Text("Tax:").FontSize(10);
-                                            row.ConstantItem(100).AlignRight().Text($"₹{order.TaxAmount:F2}").FontSize(10);
+                                            row.RelativeItem().Text("Total:").FontSize(12).Bold();
+                                            row.ConstantItem(100).AlignRight().Text($"Rs.{order.TotalAmount:F2}").FontSize(12).Bold();
                                         });
-                                    }
-
-                                    if (order.DiscountAmount > 0)
-                                    {
-                                        summaryColumn.Item().Row(row =>
-                                        {
-                                            row.ConstantItem(100).Text("Discount:").FontSize(10).FontColor(Colors.Red.Medium);
-                                            row.ConstantItem(100).AlignRight().Text($"-₹{order.DiscountAmount:F2}").FontSize(10).FontColor(Colors.Red.Medium);
-                                        });
-                                    }
-
-                                    summaryColumn.Item().PaddingTop(5);
-                                    summaryColumn.Item().Row(row =>
-                                    {
-                                        row.ConstantItem(100).Text("Total:").FontSize(12).Bold();
-                                        row.ConstantItem(100).AlignRight().Text($"₹{order.TotalAmount:F2}").FontSize(12).Bold();
                                     });
                                 });
 
