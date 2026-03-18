@@ -332,13 +332,20 @@ IF OBJECT_ID(N'[dbo].[SP_MARK_REVIEW_HELPFUL]', N'P') IS NOT NULL
 GO
 
 IF OBJECT_ID(N'[dbo].[AppSettings]', N'P') IS NOT NULL
-	DROP PROCEDURE [dbo].[[AppSettings]];
+	DROP PROCEDURE [dbo].[AppSettings];
 GO
 
 IF OBJECT_ID(N'[dbo].[SP_CREATE_CONTACT_MESSAGE]', N'P') IS NOT NULL
-    DROP PROCEDURE [dbo].[SP_CREATE_CONTACT_MESSAGE];
+	DROP PROCEDURE [dbo].[SP_CREATE_CONTACT_MESSAGE];
 GO
 
+IF OBJECT_ID(N'[dbo].[SP_GET_ALL_REVIEWS_ADMIN]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_GET_ALL_REVIEWS_ADMIN];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_TOGGLE_REVIEW_ACTIVE]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_TOGGLE_REVIEW_ACTIVE];
+GO
 
 CREATE PROCEDURE [dbo].[SP_CREATE_CONTACT_MESSAGE]
     @UserId BIGINT = NULL,
@@ -1782,7 +1789,7 @@ BEGIN
 	END
 	
 	-- Active products only
-	SET @WhereClause = @WhereClause + 'AND p.Active = 1 ';
+	SET @WhereClause = @WhereClause + 'AND p.Active in(1,0)';
 	
 	-- Build ORDER BY clause
 	SET @OrderByClause = 'ORDER BY ';
@@ -8562,4 +8569,99 @@ BEGIN
 	
 	DROP TABLE #Suggestions;
 END;
+GO
+
+CREATE PROCEDURE [dbo].[SP_GET_ALL_REVIEWS_ADMIN]
+	@TenantId BIGINT = NULL,
+	@Page INT = 1,
+	@Limit INT = 50
+AS
+BEGIN
+	SET NOCOUNT ON;
+	BEGIN TRY
+		DECLARE @Offset INT = (@Page - 1) * @Limit;
+
+		SELECT
+			pr.ReviewId,
+			pr.ProductId,
+			p.ProductName,
+			pr.UserId,
+			ISNULL(u.FirstName + ' ' + u.LastName, 'Unknown User') AS UserName,
+			u.Email AS UserEmail,
+			pr.Rating,
+			pr.ReviewTitle AS Title,
+			pr.ReviewText AS Comment,
+			pr.IsVerifiedPurchase AS Verified,
+			pr.HelpfulCount AS Helpful,
+			pr.Active,
+			pr.IsApproved,
+			pr.CreatedAt,
+			pr.UpdatedAt
+		FROM ProductReviews pr
+		INNER JOIN Users u ON pr.UserId = u.UserId
+		INNER JOIN Products p ON pr.ProductId = p.ProductId
+		WHERE (@TenantId IS NULL OR p.TenantId = @TenantId)
+		ORDER BY pr.CreatedAt DESC
+		OFFSET @Offset ROWS FETCH NEXT @Limit ROWS ONLY;
+
+		-- Total count
+		SELECT COUNT(*) AS TotalCount
+		FROM ProductReviews pr
+		INNER JOIN Products p ON pr.ProductId = p.ProductId
+		WHERE (@TenantId IS NULL OR p.TenantId = @TenantId);
+	END TRY
+	BEGIN CATCH
+		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+		DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+		DECLARE @ErrorState INT = ERROR_STATE();
+		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+	END CATCH
+END
+GO
+
+CREATE PROCEDURE [dbo].[SP_TOGGLE_REVIEW_ACTIVE]
+	@ReviewId BIGINT,
+	@Active BIT
+AS
+BEGIN
+	SET NOCOUNT ON;
+	BEGIN TRY
+		IF NOT EXISTS (SELECT 1 FROM ProductReviews WHERE ReviewId = @ReviewId)
+		BEGIN
+			RAISERROR('Review not found.', 16, 1);
+			RETURN;
+		END
+
+		UPDATE ProductReviews
+		SET Active = @Active, UpdatedAt = GETUTCDATE()
+		WHERE ReviewId = @ReviewId;
+
+		SELECT
+			pr.ReviewId,
+			pr.ProductId,
+			p.ProductName,
+			pr.UserId,
+			ISNULL(u.FirstName + ' ' + u.LastName, 'Unknown User') AS UserName,
+			u.Email AS UserEmail,
+			pr.Rating,
+			pr.ReviewTitle AS Title,
+			pr.ReviewText AS Comment,
+			pr.IsVerifiedPurchase AS Verified,
+			pr.HelpfulCount AS Helpful,
+			pr.Active,
+			pr.IsApproved,
+			pr.CreatedAt,
+			pr.UpdatedAt
+		FROM ProductReviews pr
+		INNER JOIN Users u ON pr.UserId = u.UserId
+		INNER JOIN Products p ON pr.ProductId = p.ProductId
+		WHERE pr.ReviewId = @ReviewId;
+	END TRY
+	BEGIN CATCH
+		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+		DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+		DECLARE @ErrorState INT = ERROR_STATE();
+		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+	END CATCH
+END
 GO

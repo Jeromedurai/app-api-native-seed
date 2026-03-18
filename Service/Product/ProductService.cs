@@ -1880,7 +1880,12 @@ namespace Tenant.Query.Service.Product
 
                 this._loggerFactory.CreateLogger<ProductService>().LogInformation($"Create order successful for user: {request.UserId}, Order Number: {orderResponse.OrderNumber}");
 
-                await SendOrderConfirmationEmail(request, orderResponse);
+                // Send confirmation email only for COD orders (Razorpay email is sent after payment verification)
+                var paymentType = request.PaymentMethod?.Type?.ToLower() ?? "";
+                if (paymentType != "razorpay")
+                {
+                    await SendOrderConfirmationEmail(request, orderResponse);
+                }
 
                 return orderResponse;
             }
@@ -2081,6 +2086,55 @@ namespace Tenant.Query.Service.Product
             }
         }
 
+        private async Task SendRazorpayOrderConfirmationEmail(long orderId, long userId, string paymentStatus, string orderStatus)
+        {
+            try
+            {
+                var orderData = await this.productRepository.GetOrderById(new Model.Order.GetOrderByIdRequest
+                {
+                    OrderId = orderId,
+                    UserId = userId,
+                    IncludeItems = false
+                });
+
+                if (orderData == null || string.IsNullOrWhiteSpace(orderData.CustomerEmail))
+                {
+                    this._loggerFactory.CreateLogger<ProductService>().LogWarning($"Razorpay confirmation email skipped: order {orderId} has no customer email.");
+                    return;
+                }
+
+                var companyName = _configuration["Invoice:CompanyName"] ?? _configuration["Email:FromName"] ?? "Himalaya Nursery";
+                var baseUrl = _configuration["BaseUrl"] ?? "https://api.himalayanursery.co.in";
+                var logoUrl = $"{baseUrl.TrimEnd('/')}/images/logo.png";
+
+                var emailRequest = new SendEmailRequest
+                {
+                    To = orderData.CustomerEmail,
+                    Subject = $"Order Confirmation - {orderData.OrderNumber}",
+                    TemplateName = "OrderConfirmation",
+                    TemplateData = new Dictionary<string, object>
+                    {
+                        { "CompanyName", companyName },
+                        { "CustomerName", string.IsNullOrWhiteSpace(orderData.CustomerName) ? "Customer" : orderData.CustomerName },
+                        { "OrderNumber", orderData.OrderNumber ?? orderId.ToString() },
+                        { "OrderDate", orderData.CreatedAt.ToString("dd MMM yyyy") },
+                        { "ItemCount", orderData.TotalItems },
+                        { "TotalAmount", $"Rs.{orderData.TotalAmount:F2}" },
+                        { "OrderStatus", orderStatus },
+                        { "PaymentStatus", paymentStatus },
+                        { "ShippingAddress", ParseAndFormatAddress(orderData.ShippingAddress) },
+                        { "LogoUrl", logoUrl }
+                    }
+                };
+
+                await emailService.SendEmail(emailRequest);
+            }
+            catch (Exception ex)
+            {
+                this._loggerFactory.CreateLogger<ProductService>().LogError($"Razorpay order confirmation email failed for order {orderId}: {ex.Message}");
+            }
+        }
+
         private async Task SendShippingUpdateEmail(Model.Order.UpdateOrderStatusRequest request, Model.Order.UpdateOrderStatusResponse response)
         {
             try
@@ -2162,6 +2216,48 @@ namespace Tenant.Query.Service.Product
             if (!string.IsNullOrWhiteSpace(address.Country)) parts.Add(address.Country);
 
             return string.Join(", ", parts);
+        }
+
+        /// Parses a JSON address string from DB and returns a formatted plain-text address
+        private static string ParseAndFormatAddress(string jsonAddress)
+        {
+            if (string.IsNullOrWhiteSpace(jsonAddress))
+                return "Address not available";
+
+            // Already plain text (not JSON)
+            if (!jsonAddress.TrimStart().StartsWith("{"))
+                return jsonAddress;
+
+            try
+            {
+                var doc = System.Text.Json.JsonDocument.Parse(jsonAddress);
+                var root = doc.RootElement;
+
+                string Get(string key) =>
+                    root.TryGetProperty(key, out var v) ? v.GetString() ?? "" : "";
+
+                var parts = new List<string>();
+                var company = Get("Company");
+                if (!string.IsNullOrWhiteSpace(company)) parts.Add(company);
+                var addr1 = Get("Address1");
+                if (!string.IsNullOrWhiteSpace(addr1)) parts.Add(addr1);
+                var addr2 = Get("Address2");
+                if (!string.IsNullOrWhiteSpace(addr2)) parts.Add(addr2);
+                var city = Get("City");
+                if (!string.IsNullOrWhiteSpace(city)) parts.Add(city);
+                var state = Get("State");
+                if (!string.IsNullOrWhiteSpace(state)) parts.Add(state);
+                var zip = Get("ZipCode");
+                if (!string.IsNullOrWhiteSpace(zip)) parts.Add(zip);
+                var country = Get("Country");
+                if (!string.IsNullOrWhiteSpace(country)) parts.Add(country);
+
+                return parts.Count > 0 ? string.Join(", ", parts) : "Address not available";
+            }
+            catch
+            {
+                return jsonAddress; // Return as-is if parsing fails
+            }
         }
 
         /// <summary>
@@ -2894,6 +2990,12 @@ namespace Tenant.Query.Service.Product
                             paymentStatus = updateResult.PaymentStatus ?? paymentStatus;
                             orderStatus = updateResult.Status ?? orderStatus;
                             this._loggerFactory.CreateLogger<ProductService>().LogInformation($"Order status updated successfully. OrderId: {updateResult.OrderId}, PaymentStatus: {paymentStatus}, OrderStatus: {orderStatus}");
+
+                            // Send order confirmation email after successful Razorpay payment
+                            if (request.UserId.HasValue && updateResult.OrderId.HasValue)
+                            {
+                                await SendRazorpayOrderConfirmationEmail(updateResult.OrderId.Value, request.UserId.Value, paymentStatus, orderStatus);
+                            }
                         }
                     }
                     catch (Exception ex)

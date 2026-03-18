@@ -141,6 +141,34 @@ namespace Tenant.Query.Service.Product
                 throw;
             }
         }
+
+        public async Task<AdminReviewListResponse> GetAllReviewsAdmin(long? tenantId, int page, int limit)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Service: Getting all reviews for admin, tenantId={tenantId}, page={page}");
+                return await _reviewRepository.GetAllReviewsAdmin(tenantId, page, limit);
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Service: Error getting all reviews for admin: {ex.Message}", ex);
+                throw;
+            }
+        }
+
+        public async Task<AdminReviewResponse> ToggleReviewActive(long reviewId, bool active)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Service: Toggling review {reviewId} active={active}");
+                return await _reviewRepository.ToggleReviewActive(reviewId, active);
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Service: Error toggling review active: {ex.Message}", ex);
+                throw;
+            }
+        }
     }
 }
 

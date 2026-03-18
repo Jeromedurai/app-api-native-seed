@@ -94,6 +94,8 @@ namespace Tenant.Query.Model.Constant
             public const string SP_UPDATE_PRODUCT_REVIEW = "[dbo].[SP_UPDATE_PRODUCT_REVIEW]";
             public const string SP_DELETE_PRODUCT_REVIEW = "[dbo].[SP_DELETE_PRODUCT_REVIEW]";
             public const string SP_MARK_REVIEW_HELPFUL = "[dbo].[SP_MARK_REVIEW_HELPFUL]";
+            public const string SP_GET_ALL_REVIEWS_ADMIN = "[dbo].[SP_GET_ALL_REVIEWS_ADMIN]";
+            public const string SP_TOGGLE_REVIEW_ACTIVE = "[dbo].[SP_TOGGLE_REVIEW_ACTIVE]";
             public const string SP_GET_DASHBOARD_STATS = "[dbo].[SP_GET_DASHBOARD_STATS]";
             public const string SP_GET_DASHBOARD_SALES_OVER_TIME = "[dbo].[SP_GET_DASHBOARD_SALES_OVER_TIME]";
             public const string SP_GET_DASHBOARD_TOP_PRODUCTS = "[dbo].[SP_GET_DASHBOARD_TOP_PRODUCTS]";

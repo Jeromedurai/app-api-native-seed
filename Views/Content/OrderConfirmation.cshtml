@@ -10,10 +10,14 @@
             font-family: Arial, sans-serif;
             line-height: 1.6;
             color: #333;
-            max-width: 700px;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        .wrapper {
+            max-width: 620px;
             margin: 0 auto;
             padding: 20px;
-            background-color: #f4f4f4;
         }
         .container {
             background-color: #ffffff;
@@ -48,22 +52,28 @@
             border-radius: 6px;
             margin: 20px 0;
         }
-        .row {
-            display: flex;
-            justify-content: space-between;
-            margin: 6px 0;
+        .summary table {
+            width: 100%;
+            border-collapse: collapse;
             font-size: 14px;
         }
-        .label {
-            color: #555;
+        .summary table td {
+            padding: 5px 4px;
+            vertical-align: middle;
         }
-        .value {
+        .summary table td.label {
+            color: #555;
+            width: 45%;
+        }
+        .summary table td.value {
             font-weight: bold;
+            text-align: right;
         }
         .address {
             margin-top: 12px;
             font-size: 14px;
             color: #555;
+            line-height: 1.7;
         }
         .footer {
             margin-top: 30px;
@@ -75,16 +85,16 @@
         }
         .status-badge {
             display: inline-block;
-            padding: 4px 10px;
+            padding: 3px 10px;
             background-color: #e9f5ee;
             color: #1e7e34;
             border-radius: 12px;
             font-size: 12px;
-            margin-left: 6px;
         }
     </style>
 </head>
 <body>
+    <div class="wrapper">
     <div class="container">
         <div class="header">
             @if (!string.IsNullOrEmpty(Model.LogoUrl as string))
@@ -99,43 +109,45 @@
         <p>Thanks for your order! We have received your order and will start processing it shortly.</p>
 
         <div class="summary">
-            <div class="row">
-                <div class="label">Order Number</div>
-                <div class="value">@Model.OrderNumber</div>
-            </div>
-            <div class="row">
-                <div class="label">Order Date</div>
-                <div class="value">@Model.OrderDate</div>
-            </div>
-            <div class="row">
-                <div class="label">Items</div>
-                <div class="value">@Model.ItemCount</div>
-            </div>
-            <div class="row">
-                <div class="label">Total</div>
-                <div class="value">@Model.TotalAmount</div>
-            </div>
-            <div class="row">
-                <div class="label">Order Status</div>
-                <div class="value"><span class="status-badge">@Model.OrderStatus</span></div>
-            </div>
-            <div class="row">
-                <div class="label">Payment Status</div>
-                <div class="value"><span class="status-badge">@Model.PaymentStatus</span></div>
-            </div>
+            <table>
+                <tr>
+                    <td class="label">Order Number</td>
+                    <td class="value">@Model.OrderNumber</td>
+                </tr>
+                <tr>
+                    <td class="label">Order Date</td>
+                    <td class="value">@Model.OrderDate</td>
+                </tr>
+                <tr>
+                    <td class="label">Items</td>
+                    <td class="value">@Model.ItemCount</td>
+                </tr>
+                <tr>
+                    <td class="label">Total</td>
+                    <td class="value">@Model.TotalAmount</td>
+                </tr>
+                <tr>
+                    <td class="label">Order Status</td>
+                    <td class="value"><span class="status-badge">@Model.OrderStatus</span></td>
+                </tr>
+                <tr>
+                    <td class="label">Payment Status</td>
+                    <td class="value"><span class="status-badge">@Model.PaymentStatus</span></td>
+                </tr>
+            </table>
         </div>
 
         <div>
             <strong>Shipping Address</strong>
-            <div class="address">@Model.ShippingAddress</div>
+            <div class="address">@Html.Raw((Model.ShippingAddress as string ?? "").Replace(", ", "<br/>"))</div>
         </div>
 
         <p>If you have any questions, just reply to this email.</p>
 
         <div class="footer">
-            <p>This is an automated message. Please do not reply to this email.</p>
             <p>&copy; @DateTime.Now.Year @Model.CompanyName. All rights reserved.</p>
         </div>
+    </div>
     </div>
 </body>
 </html>

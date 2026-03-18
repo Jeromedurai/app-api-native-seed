@@ -49,6 +49,11 @@ namespace Tenant.Query.Model.Order
         /// </summary>
         [StringLength(50)]
         public string InternalOrderNumber { get; set; }
+
+        /// <summary>
+        /// User ID — used to fetch order details for confirmation email after successful payment
+        /// </summary>
+        public long? UserId { get; set; }
     }
 
     /// <summary>

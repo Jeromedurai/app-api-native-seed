@@ -96,7 +96,7 @@ namespace Tenant.Query.Service.Invoice
                                     });
                                 });
 
-                                row.ConstantItem(110).AlignRight().Column(column =>
+                                row.ConstantItem(160).AlignRight().Column(column =>
                                 {
                                     column.Item().Text("INVOICE").FontSize(24).Bold().FontColor(Colors.Green.Darken3);
                                     column.Item().Text($"Invoice #: {order.OrderNumber}").FontSize(10);

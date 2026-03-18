@@ -233,6 +233,83 @@ namespace Tenant.Query.Repository.Product
         /// <summary>
         /// Map DataRow to ProductReviewResponse
         /// </summary>
+        public async Task<AdminReviewListResponse> GetAllReviewsAdmin(long? tenantId, int page, int limit)
+        {
+            try
+            {
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Constant.StoredProcedures.SP_GET_ALL_REVIEWS_ADMIN,
+                    tenantId ?? (object)DBNull.Value,
+                    page,
+                    limit
+                ));
+
+                var reviews = new List<AdminReviewResponse>();
+                int totalCount = 0;
+
+                if (result?.Tables.Count > 0)
+                {
+                    reviews = result.Tables[0].Rows.Cast<DataRow>()
+                        .Select(MapToAdminReviewResponse).ToList();
+                }
+                if (result?.Tables.Count > 1 && result.Tables[1].Rows.Count > 0)
+                {
+                    totalCount = Convert.ToInt32(result.Tables[1].Rows[0]["TotalCount"]);
+                }
+
+                return new AdminReviewListResponse { Reviews = reviews, TotalCount = totalCount, Page = page, Limit = limit };
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Error getting all reviews for admin: {ex.Message}", ex);
+                throw;
+            }
+        }
+
+        public async Task<AdminReviewResponse> ToggleReviewActive(long reviewId, bool active)
+        {
+            try
+            {
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Constant.StoredProcedures.SP_TOGGLE_REVIEW_ACTIVE,
+                    reviewId,
+                    active
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                    throw new KeyNotFoundException("Review not found");
+
+                return MapToAdminReviewResponse(result.Tables[0].Rows[0]);
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Error toggling review active: {ex.Message}", ex);
+                throw;
+            }
+        }
+
+        private AdminReviewResponse MapToAdminReviewResponse(DataRow row)
+        {
+            return new AdminReviewResponse
+            {
+                ReviewId = Convert.ToInt64(row["ReviewId"]),
+                ProductId = Convert.ToInt64(row["ProductId"]),
+                ProductName = row["ProductName"]?.ToString() ?? "",
+                UserId = Convert.ToInt64(row["UserId"]),
+                UserName = row["UserName"]?.ToString() ?? "",
+                UserEmail = row["UserEmail"]?.ToString() ?? "",
+                Rating = Convert.ToInt32(row["Rating"]),
+                Title = row["Title"]?.ToString() ?? "",
+                Comment = row["Comment"]?.ToString() ?? "",
+                Verified = row["Verified"] != DBNull.Value && Convert.ToBoolean(row["Verified"]),
+                Helpful = Convert.ToInt32(row["Helpful"]),
+                Active = row["Active"] != DBNull.Value && Convert.ToBoolean(row["Active"]),
+                IsApproved = row["IsApproved"] != DBNull.Value && Convert.ToBoolean(row["IsApproved"]),
+                CreatedAt = Convert.ToDateTime(row["CreatedAt"]),
+                UpdatedAt = Convert.ToDateTime(row["UpdatedAt"])
+            };
+        }
+
         private ProductReviewResponse MapToReviewResponse(DataRow row)
         {
             return new ProductReviewResponse
