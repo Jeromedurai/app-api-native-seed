@@ -1253,6 +1253,7 @@ namespace Tenant.Query.Controllers.Product
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [Authorize]
         [HttpPost]
         [Route("tenants/{tenantId:long}/add-product")]
         public async Task<IActionResult> AddProduct([FromRoute] long tenantId, [FromBody] AddProductRequest request)
@@ -1289,10 +1290,10 @@ namespace Tenant.Query.Controllers.Product
         /// <param name="request">Product details</param>
         /// <returns>Success message</returns>
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
-        [AllowAnonymous]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status404NotFound, "Product not found", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [Authorize]
         [HttpPost]
         [Route("tenants/{tenantId:long}/update-product")]
         public async Task<IActionResult> UpdateProduct([FromRoute] long tenantId, [FromBody] UpdateProductRequest request)
@@ -1335,6 +1336,7 @@ namespace Tenant.Query.Controllers.Product
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status404NotFound, "Product not found", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [Authorize]
         [HttpDelete]
         [Route("tenants/{tenantId:long}/{productId:long}")]
         public async Task<IActionResult> DeleteProduct([FromRoute] long tenantId, [FromRoute] long productId)
@@ -1390,6 +1392,7 @@ namespace Tenant.Query.Controllers.Product
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [Authorize]
         [HttpPost]
         [Route("tenants/{tenantId:long}/add-category")]
         public async Task<IActionResult> AddCategory([FromRoute] long tenantId, [FromBody] AddCategoryRequest request)
@@ -1430,7 +1433,8 @@ namespace Tenant.Query.Controllers.Product
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status404NotFound, "Category not found", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
-        [HttpPut]
+        [Authorize]
+        [HttpPost]
         [Route("tenants/{tenantId:long}/update-category/{categoryId:long}")]
         public async Task<IActionResult> UpdateCategory([FromRoute] long categoryId, [FromRoute] long tenantId,
             [FromBody] UpdateCategoryRequest request)
@@ -1479,8 +1483,9 @@ namespace Tenant.Query.Controllers.Product
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status404NotFound, "Category not found", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
-        [HttpDelete]
-        [Route("categories/{categoryId:long}")]
+        [Authorize]
+        [HttpPost]
+        [Route("categories/{categoryId:long}/delete")]
         public async Task<IActionResult> DeleteCategory([FromRoute] long categoryId, [FromQuery] long tenantId)
         {
             try
@@ -1692,7 +1697,7 @@ namespace Tenant.Query.Controllers.Product
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status404NotFound, "Not Found", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
-        [HttpDelete]
+        [HttpPost]
         [Route("tenants/{tenantId:long}/remove-from-wishlist")]
         public IActionResult RemoveProductFromWishList([FromRoute] long tenantId, [FromBody] RemoveWhishListPayload payload)
         {
@@ -2628,6 +2633,7 @@ namespace Tenant.Query.Controllers.Product
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status403Forbidden, "Insufficient privileges", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [Authorize]
         [HttpPost]
         [Route("admin/users")]
         public async Task<IActionResult> GetAllUsers([FromBody] Model.Admin.GetAllUsersRequest request)
@@ -2691,6 +2697,7 @@ namespace Tenant.Query.Controllers.Product
         [SwaggerResponse(StatusCodes.Status403Forbidden, "Insufficient privileges", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status404NotFound, "User not found", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [Authorize]
         [HttpPost]
         [Route("admin/users/{userId:long}/role")]
         public async Task<IActionResult> UpdateUserRole([FromRoute] long userId, [FromBody] Model.Admin.UpdateUserRoleRequest request)
@@ -2759,6 +2766,7 @@ namespace Tenant.Query.Controllers.Product
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status403Forbidden, "Insufficient privileges", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [Authorize]
         [HttpPost]
         [Route("admin/orders")]
         public async Task<IActionResult> GetAllOrders([FromBody] Model.Admin.GetAllOrdersRequest request)

@@ -102,6 +102,7 @@ namespace Tenant.Query.Controllers.Coupon
         /// </summary>
         /// <param name="request">Create coupon request</param>
         /// <returns>Created coupon</returns>
+        [Authorize]
         [HttpPost]
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
@@ -233,6 +234,7 @@ namespace Tenant.Query.Controllers.Coupon
         /// <param name="couponId">Coupon ID</param>
         /// <param name="request">Update coupon request</param>
         /// <returns>Updated coupon</returns>
+        [Authorize]
         [HttpPost]
         [Route("{couponId:long}")]
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
@@ -293,6 +295,7 @@ namespace Tenant.Query.Controllers.Coupon
         /// <param name="couponId">Coupon ID</param>
         /// <param name="tenantId">Tenant ID</param>
         /// <returns>Success status</returns>
+        [Authorize]
         [HttpDelete]
         [Route("{couponId:long}")]
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]

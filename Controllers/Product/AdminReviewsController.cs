@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -18,6 +19,7 @@ namespace Tenant.Query.Controllers.Product
     [ApiController]
     [Route("api/1.0/admin/reviews")]
     [SwaggerTag("Admin Reviews Management")]
+    [Authorize]
     public class AdminReviewsController : ControllerBase
     {
         private readonly ProductReviewService _reviewService;

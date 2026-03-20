@@ -31,6 +31,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Update="Views\**\*">
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="Sa.Common.ADO.DataAccess">
       <HintPath>Reference\Sa.Common.ADO.DataAccess.dll</HintPath>
     </Reference>
