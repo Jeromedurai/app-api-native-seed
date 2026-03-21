@@ -2055,8 +2055,12 @@ namespace Tenant.Query.Service.Product
                 var shippingAddress = FormatAddress(request?.ShippingAddress);
                 var orderDate = response.CreatedDate == default ? DateTime.UtcNow : response.CreatedDate;
 
+                // Use production-friendly logo URL for emails
                 var baseUrl = _configuration["BaseUrl"] ?? "https://api.himalayanursery.co.in";
-                var logoUrl = $"{baseUrl.TrimEnd('/')}/images/logo.png";
+                // For production, use the actual domain. For development, fall back to production URL
+                var logoUrl = _configuration["Environment"] == "Production"
+                    ? $"{baseUrl.TrimEnd('/')}/images/logo.png"
+                    : "https://api.himalayanursery.co.in/images/logo.png";
 
                 var emailRequest = new SendEmailRequest
                 {
@@ -2104,8 +2108,12 @@ namespace Tenant.Query.Service.Product
                 }
 
                 var companyName = _configuration["Invoice:CompanyName"] ?? _configuration["Email:FromName"] ?? "Himalaya Nursery";
+                // Use production-friendly logo URL for emails
                 var baseUrl = _configuration["BaseUrl"] ?? "https://api.himalayanursery.co.in";
-                var logoUrl = $"{baseUrl.TrimEnd('/')}/images/logo.png";
+                // For production, use the actual domain. For development, fall back to production URL
+                var logoUrl = _configuration["Environment"] == "Production"
+                    ? $"{baseUrl.TrimEnd('/')}/images/logo.png"
+                    : "https://api.himalayanursery.co.in/images/logo.png";
 
                 var emailRequest = new SendEmailRequest
                 {
@@ -2280,11 +2288,11 @@ namespace Tenant.Query.Service.Product
                 if (string.IsNullOrEmpty(request.Status))
                     throw new ArgumentException("Status is required");
 
-                // Validate status value (optional - could also be done in stored procedure)
-                var validStatuses = new[] { "Pending", "Confirmed", "Processing", "Shipped", "Delivered", "Cancelled", "Returned", "Refunded" };
-                if (!validStatuses.Contains(request.Status, StringComparer.OrdinalIgnoreCase))
+                // Validate status value using enum
+                if (!Model.Order.OrderStatusExtensions.TryParseOrderStatus(request.Status, out _))
                 {
-                    throw new ArgumentException($"Invalid status: {request.Status}. Valid statuses are: {string.Join(", ", validStatuses)}");
+                    var validStatuses = string.Join(", ", Model.Order.OrderStatusExtensions.GetValidOrderStatuses());
+                    throw new ArgumentException($"Invalid status: {request.Status}. Valid statuses are: {validStatuses}");
                 }
 
                 var statusResponse = await this.productRepository.UpdateOrderStatus(request);
@@ -2334,11 +2342,11 @@ namespace Tenant.Query.Service.Product
                 if (string.IsNullOrEmpty(request.Status))
                     throw new ArgumentException("Status is required");
 
-                // Validate status value
-                var validStatuses = new[] { "Pending", "Confirmed", "Processing", "Shipped", "Delivered", "Cancelled", "Returned", "Refunded" };
-                if (!validStatuses.Contains(request.Status, StringComparer.OrdinalIgnoreCase))
+                // Validate status value using enum
+                if (!Model.Order.OrderStatusExtensions.TryParseOrderStatus(request.Status, out _))
                 {
-                    throw new ArgumentException($"Invalid status: {request.Status}. Valid statuses are: {string.Join(", ", validStatuses)}");
+                    var validStatuses = string.Join(", ", Model.Order.OrderStatusExtensions.GetValidOrderStatuses());
+                    throw new ArgumentException($"Invalid status: {request.Status}. Valid statuses are: {validStatuses}");
                 }
 
                 // Update each order
@@ -2517,13 +2525,13 @@ namespace Tenant.Query.Service.Product
                 if (request.StartDate.HasValue && request.EndDate.HasValue && request.StartDate > request.EndDate)
                     throw new ArgumentException("Start date cannot be later than end date");
 
-                // Validate status if provided
+                // Validate status if provided using enum
                 if (!string.IsNullOrEmpty(request.Status))
                 {
-                    var validStatuses = new[] { "Pending", "Confirmed", "Processing", "Shipped", "Delivered", "Cancelled", "Returned", "Refunded" };
-                    if (!validStatuses.Contains(request.Status, StringComparer.OrdinalIgnoreCase))
+                    if (!Model.Order.OrderStatusExtensions.TryParseOrderStatus(request.Status, out _))
                     {
-                        throw new ArgumentException($"Invalid status: {request.Status}. Valid statuses are: {string.Join(", ", validStatuses)}");
+                        var validStatuses = string.Join(", ", Model.Order.OrderStatusExtensions.GetValidOrderStatuses());
+                        throw new ArgumentException($"Invalid status: {request.Status}. Valid statuses are: {validStatuses}");
                     }
                 }
 

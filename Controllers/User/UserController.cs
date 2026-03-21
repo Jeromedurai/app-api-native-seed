@@ -674,6 +674,7 @@ namespace Tenant.Query.Controllers
         /// </summary>
         /// <param name="request">Get all users request with filters and pagination</param>
         /// <returns>Paginated list of users</returns>
+        [Authorize]
         [HttpPost]
         [Route("admin/users")]
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
@@ -731,6 +732,7 @@ namespace Tenant.Query.Controllers
         /// </summary>
         /// <param name="request">Update user status request</param>
         /// <returns>Success confirmation</returns>
+        [Authorize]
         [HttpPost]
         [Route("admin/users/update-status")]
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]

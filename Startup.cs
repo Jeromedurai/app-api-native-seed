@@ -76,7 +76,7 @@ namespace Tenant.Query
             
             services.AddCors(options =>
             {
-                // Named policy for production with specific origins
+                // Named policy for production with specific origins (ONLY POLICY)
                 options.AddPolicy("AllowFrontend", builder =>
                 {
                     builder.WithOrigins(trimmedOrigins)
@@ -85,14 +85,9 @@ namespace Tenant.Query
                            .AllowCredentials()
                            .SetPreflightMaxAge(TimeSpan.FromHours(1));
                 });
-                
-                // Default policy for development - allows all origins
-                options.AddDefaultPolicy(builder =>
-                {
-                    builder.AllowAnyOrigin()
-                           .AllowAnyMethod()
-                           .AllowAnyHeader();
-                });
+
+                // Security: No default policy that allows all origins - only use named "AllowFrontend" policy
+                // This prevents unintended CORS access from unauthorized origins
             });
 
             //initialize base services
@@ -113,7 +108,8 @@ namespace Tenant.Query
                 //options.UseSqlServer(Configuration.GetConnectionString("Default_SSL"));
                 options.UseSqlServer(SetConnectionString(Configuration["ConnectionStrings:Default"]),
                 sqlServerOptions => sqlServerOptions.CommandTimeout(60));
-                options.EnableSensitiveDataLogging(true);
+                // ✅ SECURITY: Only enable sensitive data logging in development environment
+                options.EnableSensitiveDataLogging(Environment.EnvironmentName == "Development");
                 options.UseLoggerFactory(TnBaseStartup.LoggerFactory);
             });
 
@@ -122,7 +118,8 @@ namespace Tenant.Query
                 //options.UseSqlServer(Configuration.GetConnectionString("Default_SSL"));
                 options.UseSqlServer(SetConnectionString(Configuration["ConnectionStrings:Default"]),
                 sqlServerOptions => sqlServerOptions.CommandTimeout(60));
-                options.EnableSensitiveDataLogging(true);
+                // ✅ SECURITY: Only enable sensitive data logging in development environment
+                options.EnableSensitiveDataLogging(Environment.EnvironmentName == "Development");
                 options.UseLoggerFactory(TnBaseStartup.LoggerFactory);
             });
 
@@ -131,7 +128,8 @@ namespace Tenant.Query
                 //options.UseSqlServer(Configuration.GetConnectionString("Default_SSL"));
                 options.UseSqlServer(SetConnectionString(Configuration["ConnectionStrings:Default"]),
                 sqlServerOptions => sqlServerOptions.CommandTimeout(60));
-                options.EnableSensitiveDataLogging(true);
+                // ✅ SECURITY: Only enable sensitive data logging in development environment
+                options.EnableSensitiveDataLogging(Environment.EnvironmentName == "Development");
                 options.UseLoggerFactory(TnBaseStartup.LoggerFactory);
             });
 
@@ -141,7 +139,8 @@ namespace Tenant.Query
                 //options.UseSqlServer(Configuration.GetConnectionString("Default_SSL"));
                 options.UseSqlServer(SetConnectionString(Configuration["ConnectionStrings:Default"]),
                 sqlServerOptions => sqlServerOptions.CommandTimeout(60));
-                options.EnableSensitiveDataLogging(true);
+                // ✅ SECURITY: Only enable sensitive data logging in development environment
+                options.EnableSensitiveDataLogging(Environment.EnvironmentName == "Development");
                 options.UseLoggerFactory(TnBaseStartup.LoggerFactory);
             });
 
@@ -150,7 +149,8 @@ namespace Tenant.Query
                 //options.UseSqlServer(Configuration.GetConnectionString("Default_SSL"));
                 options.UseSqlServer(SetConnectionString(Configuration["ConnectionStrings:Default"]),
                 sqlServerOptions => sqlServerOptions.CommandTimeout(60));
-                options.EnableSensitiveDataLogging(true);
+                // ✅ SECURITY: Only enable sensitive data logging in development environment
+                options.EnableSensitiveDataLogging(Environment.EnvironmentName == "Development");
                 options.UseLoggerFactory(TnBaseStartup.LoggerFactory);
             });
 
@@ -212,10 +212,20 @@ namespace Tenant.Query
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env, ILoggerFactory loggerFactory)
         {
+            // ✅ CRITICAL: Enable static files FIRST (before security headers) so they can be served
+            // This allows serving logo.png for email templates
+            app.UseStaticFiles();
+
             // Enable CORS as the FIRST middleware - must be before any other middleware
             // Always use the named policy - it works for both development and production
             app.UseCors("AllowFrontend");
-            
+
+            // ✅ SECURITY: Add rate limiting middleware to prevent brute force attacks on auth endpoints
+            app.UseMiddleware<Middleware.RateLimitingMiddleware>();
+
+            // ✅ SECURITY: Add security headers middleware to prevent common web vulnerabilities
+            app.UseMiddleware<Middleware.SecurityHeadersMiddleware>();
+
             //initialize application with base pipeline
             TnBaseStartup.InitializeApplication(Configuration, app, env, loggerFactory);
 

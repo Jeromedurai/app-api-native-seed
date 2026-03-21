@@ -55,6 +55,7 @@ namespace Tenant.Query.Controllers.Product
         /// <param name="tenantId"></param>
         /// <param name="dto"></param>
         /// <returns></returns>
+        [Authorize]  // ✅ SECURITY: Require authentication for image uploads
         [HttpPost("tenants/{tenantId}/upload")]
         [DisableRequestSizeLimit]
         [RequestFormLimits(MultipartBodyLengthLimit = MaxFileSize)]
@@ -62,6 +63,13 @@ namespace Tenant.Query.Controllers.Product
         {
             try
             {
+                // ✅ SECURITY: Validate user owns this tenant (added for authorization fix)
+                var userTenantIdClaim = User?.FindFirst("tenant_id")?.Value ?? User?.FindFirst("tenantId")?.Value;
+                if (string.IsNullOrEmpty(userTenantIdClaim) || userTenantIdClaim != tenantId)
+                {
+                    return Forbid(); // 403 Forbidden - user doesn't own this tenant
+                }
+
                 // Validation
                 if (dto == null)
                     return BadRequest("Request data is missing");
@@ -2263,6 +2271,39 @@ namespace Tenant.Query.Controllers.Product
                 }
 
                 var result = await this.Service.CreateOrder(request);
+
+                // Set httpOnly cookie for pending order during Razorpay payment (HIGH RISK - security hardened)
+                // This stores order information securely so it can be retrieved during payment verification
+                if (result != null && result.OrderId > 0)
+                {
+                    try
+                    {
+                        var pendingOrderData = new
+                        {
+                            orderId = result.OrderId,
+                            orderNumber = result.OrderNumber,
+                            amount = (long)(request.Totals.Total * 100), // Convert to paise
+                            userId = request.UserId,
+                            timestamp = DateTime.UtcNow.ToUniversalTime(),
+                            expiry = DateTime.UtcNow.AddMinutes(30)
+                        };
+
+                        var orderJson = System.Text.Json.JsonSerializer.Serialize(pendingOrderData);
+                        var cookieOptions = new CookieOptions
+                        {
+                            HttpOnly = true, // Prevent JavaScript access (XSS protection)
+                            Secure = true, // HTTPS only in production
+                            SameSite = SameSiteMode.Strict, // CSRF protection
+                            Expires = DateTime.UtcNow.AddMinutes(30)
+                        };
+                        Response.Cookies.Append("pending_razorpay_order", orderJson, cookieOptions);
+                    }
+                    catch (System.Exception)
+                    {
+                        // Continue if cookie setting fails - not critical for order creation
+                    }
+                }
+
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
             }
             catch (KeyNotFoundException ex)

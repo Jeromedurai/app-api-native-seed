@@ -277,6 +277,33 @@ namespace Tenant.Query.Controllers.Payment
                     return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, message = "Failed to create Razorpay checkout", error = "Service returned null" });
                 }
 
+                // Set httpOnly cookie for Razorpay session data (HIGH RISK - security hardened)
+                var razorpaySessionData = new
+                {
+                    razorpayOrderId = result.OrderId,
+                    amount = result.Amount,
+                    timestamp = result.Timestamp,
+                    expiry = DateTime.UtcNow.AddMinutes(30),
+                    sessionToken = result.SessionToken
+                };
+
+                try
+                {
+                    var sessionJson = System.Text.Json.JsonSerializer.Serialize(razorpaySessionData);
+                    var cookieOptions = new CookieOptions
+                    {
+                        HttpOnly = true, // Prevent JavaScript access (XSS protection)
+                        Secure = true, // HTTPS only in production
+                        SameSite = SameSiteMode.Strict, // CSRF protection
+                        Expires = DateTime.UtcNow.AddMinutes(30)
+                    };
+                    Response.Cookies.Append("razorpay_checkout_session", sessionJson, cookieOptions);
+                }
+                catch (System.Exception)
+                {
+                    // Continue - cookie not critical if set fails (logged below if needed)
+                }
+
                 // Return response in the format specified
                 var response = new
                 {
@@ -511,12 +538,75 @@ namespace Tenant.Query.Controllers.Payment
                     return BadRequest(new ApiResult { Exception = "Signature is required" });
                 }
 
+                // HIGH RISK: Read httpOnly cookies for order verification (security hardened)
+                // Extract pending order data from httpOnly cookie if not provided in request
+                if (!request.InternalOrderId.HasValue && string.IsNullOrEmpty(request.InternalOrderNumber))
+                {
+                    try
+                    {
+                        if (Request.Cookies.TryGetValue("pending_razorpay_order", out var pendingOrderJson))
+                        {
+                            var pendingOrder = System.Text.Json.JsonSerializer.Deserialize<dynamic>(pendingOrderJson);
+                            if (pendingOrder != null)
+                            {
+                                // Extract values from the JSON object
+                                var element = (System.Text.Json.JsonElement)pendingOrder;
+                                if (element.TryGetProperty("orderId", out var orderIdElement) && orderIdElement.TryGetInt64(out long orderId))
+                                {
+                                    request.InternalOrderId = orderId;
+                                }
+                                if (element.TryGetProperty("orderNumber", out var orderNumberElement))
+                                {
+                                    request.InternalOrderNumber = orderNumberElement.GetString();
+                                }
+                                if (element.TryGetProperty("userId", out var userIdElement) && userIdElement.TryGetInt64(out long userId))
+                                {
+                                    request.UserId = userId;
+                                }
+                            }
+                        }
+                    }
+                    catch (System.Exception)
+                    {
+                        // Continue if cookie reading fails - backend will look up order by RazorpayOrderId if needed
+                    }
+                }
+
                 // Call service to verify payment
                 var result = await this.Service.VerifyRazorpayPayments(request);
 
                 if (result == null)
                 {
+                    // Clear httpOnly session cookies on verification failure
+                    try
+                    {
+                        Response.Cookies.Delete("razorpay_checkout_session");
+                        Response.Cookies.Delete("pending_razorpay_order");
+                    }
+                    catch (System.Exception)
+                    {
+                        // Continue if cookie deletion fails
+                    }
+
                     return NotFound(new ApiResult { Exception = "Payment verification failed" });
+                }
+
+                // Clear httpOnly session cookies on successful verification (HIGH RISK - security cleanup)
+                try
+                {
+                    var cookieOptions = new CookieOptions
+                    {
+                        HttpOnly = true,
+                        Secure = true,
+                        SameSite = SameSiteMode.Strict,
+                        Expires = DateTime.UtcNow.AddSeconds(-1) // Expired cookie to delete
+                    };
+                    Response.Cookies.Append("razorpay_checkout_session", "", cookieOptions);
+                    Response.Cookies.Append("pending_razorpay_order", "", cookieOptions);
+                }
+                catch (System.Exception)
+                {
+                    // Continue if cookie deletion fails
                 }
 
                 // Return success response
@@ -578,11 +668,12 @@ namespace Tenant.Query.Controllers.Payment
                     return BadRequest(new ApiResult { Exception = "Razorpay Order ID is required" });
                 }
 
-                // Validate Reason
-                if (string.IsNullOrWhiteSpace(request.Reason) || 
-                    (request.Reason != "cancelled" && request.Reason != "failed"))
+                // Validate Reason using enum
+                if (string.IsNullOrWhiteSpace(request.Reason) ||
+                    !Model.Order.OrderStatusExtensions.TryParsePaymentFailureReason(request.Reason, out _))
                 {
-                    return BadRequest(new ApiResult { Exception = "Reason must be either 'cancelled' or 'failed'" });
+                    var validReasons = string.Join(", ", Model.Order.OrderStatusExtensions.GetValidPaymentFailureReasons());
+                    return BadRequest(new ApiResult { Exception = $"Reason must be one of: {validReasons}" });
                 }
 
                 // Call service to mark payment as failed
@@ -591,6 +682,24 @@ namespace Tenant.Query.Controllers.Payment
                 if (result == null)
                 {
                     return NotFound(new ApiResult { Exception = "Payment not found or could not be marked as failed" });
+                }
+
+                // Clear httpOnly session cookies when payment is marked failed (HIGH RISK - security cleanup)
+                try
+                {
+                    var cookieOptions = new CookieOptions
+                    {
+                        HttpOnly = true,
+                        Secure = true,
+                        SameSite = SameSiteMode.Strict,
+                        Expires = DateTime.UtcNow.AddSeconds(-1) // Expired cookie to delete
+                    };
+                    Response.Cookies.Append("razorpay_checkout_session", "", cookieOptions);
+                    Response.Cookies.Append("pending_razorpay_order", "", cookieOptions);
+                }
+                catch (System.Exception)
+                {
+                    // Continue if cookie deletion fails
                 }
 
                 // Return success response
