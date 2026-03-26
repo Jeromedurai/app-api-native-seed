@@ -2688,7 +2688,7 @@ GO
 					IF @NewQuantity > @AvailableStock
 					BEGIN
 						IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
-						RAISERROR('Insufficient stock. Available quantity: %d, Requested quantity: %d.', 16, 1, @AvailableStock, @NewQuantity);
+						RAISERROR('Only %d unit(s) available.', 16, 1, @AvailableStock);
 						RETURN;
 					END
 				
@@ -4053,18 +4053,6 @@ BEGIN
 		--     RETURN;
 		-- END
 		
-		-- Check stock availability before creating order
-		IF EXISTS (
-			SELECT 1 
-			FROM @TempOrderItems t
-			INNER JOIN Products p ON t.ProductId = p.ProductId
-			WHERE p.Quantity < t.Quantity
-		)
-		BEGIN
-			RAISERROR('Insufficient stock for one or more products.', 16, 1);
-			RETURN;
-		END
-		
 		-- Generate order number if not provided
 		IF @OrderNumber IS NULL OR @OrderNumber = ''
 		BEGIN
@@ -4173,40 +4161,39 @@ BEGIN
 			END
 		END
 		
+		-- ATOMIC STOCK DECREMENT (race condition safe)
+		-- SQL Server acquires U-lock before reading, X-lock before writing.
+		-- Two concurrent transactions on the same product row are serialized by the lock manager.
+		-- The second transaction sees the already-decremented quantity, fails WHERE clause, @@ROWCOUNT < expected.
+		DECLARE @StockUpdateCount INT = 0;
+
+		UPDATE p
+		SET
+			p.Quantity = p.Quantity - t.Quantity,
+			p.UserBuyCount = p.UserBuyCount + t.Quantity,
+			p.Modified = @CurrentTime
+		FROM Products p
+		INNER JOIN @TempOrderItems t ON p.ProductId = t.ProductId
+		WHERE p.Quantity >= t.Quantity
+			AND p.Active = 1;
+
+		SET @StockUpdateCount = @@ROWCOUNT;
+
+		IF @StockUpdateCount <> (SELECT COUNT(*) FROM @TempOrderItems)
+		BEGIN
+			RAISERROR('Insufficient stock for one or more products.', 16, 1);
+			RETURN;
+		END
+
 		-- Insert order items
 		INSERT INTO OrderItems (
 			OrderId, ProductId, ProductName, ProductImage, ProductCode, Price, Quantity, Total,
 			DiscountAmount, TaxAmount, Active, CreatedAt, UpdatedAt
 		)
-		SELECT 
+		SELECT
 			@OrderId, ProductId, ProductName, ProductImage, ProductCode, Price, Quantity, Total,
 			0, 0, 1, @CurrentTime, @CurrentTime
 		FROM @TempOrderItems;
-		
-		-- INVENTORY MANAGEMENT: Update product inventory (reduce stock)
-		UPDATE p
-		SET 
-			p.Quantity = p.Quantity - oi.Quantity,
-			p.UserBuyCount = p.UserBuyCount + oi.Quantity,
-			p.Modified = @CurrentTime
-		FROM Products p
-		INNER JOIN OrderItems oi ON p.ProductId = oi.ProductId
-		WHERE oi.OrderId = @OrderId 
-			AND oi.Active = 1
-			AND p.Active = 1;
-		
-		-- Double-check for insufficient stock after update
-		IF EXISTS (
-			SELECT 1 
-			FROM Products p
-			INNER JOIN OrderItems oi ON p.ProductId = oi.ProductId
-			WHERE oi.OrderId = @OrderId 
-				AND p.Quantity < 0
-		)
-		BEGIN
-			RAISERROR('Insufficient stock for one or more products after inventory update.', 16, 1);
-			RETURN;
-		END
 		
 		-- Clear user's cart items that were ordered
 		UPDATE CartItems
