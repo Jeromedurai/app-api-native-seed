@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Formats.Webp;
 using SixLabors.ImageSharp.Processing;
 using System;
 using System.Collections.Generic;
@@ -121,9 +122,10 @@ namespace Tenant.Query.Service.Product
             }));
 
             using var resultStream = new MemoryStream();
-            await image.SaveAsync(resultStream, new JpegEncoder
+            await image.SaveAsync(resultStream, new WebpEncoder
             {
-                Quality = 80
+                Quality = 80,
+                Method = WebpEncodingMethod.Default
             });
             return resultStream.ToArray();
         }

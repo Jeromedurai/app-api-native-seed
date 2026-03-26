@@ -207,6 +207,7 @@ namespace Tenant.Query
             });
 
             services.AddSingleton<DataAccess>(_ => new DataAccess(SetConnectionString(Configuration["ConnectionStrings:Default"])));
+            services.AddResponseCaching();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -215,6 +216,7 @@ namespace Tenant.Query
             // ✅ CRITICAL: Enable static files FIRST (before security headers) so they can be served
             // This allows serving logo.png for email templates
             app.UseStaticFiles();
+            app.UseResponseCaching();
 
             // Enable CORS as the FIRST middleware - must be before any other middleware
             // Always use the named policy - it works for both development and production

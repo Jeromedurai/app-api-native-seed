@@ -270,7 +270,7 @@ namespace Tenant.Query.Controllers.Product
         /// <returns></returns>
         [AllowAnonymous]
         [HttpGet("{id:long}/image")]
-        // [ResponseCache(Duration = 86400)] // Cache for 1 day
+        [ResponseCache(Duration = 86400)] // Cache for 1 day
         public async Task<IActionResult> GetImage(long id)
         {
             try
@@ -295,7 +295,7 @@ namespace Tenant.Query.Controllers.Product
         /// <returns></returns>
         [AllowAnonymous]
         [HttpGet("{id:long}/thumbnail")]
-        // [ResponseCache(Duration = 86400)]
+        [ResponseCache(Duration = 86400)]
         public async Task<IActionResult> GetThumbnail(long id)
         {
             try
@@ -307,7 +307,8 @@ namespace Tenant.Query.Controllers.Product
 
                 // Fallback to full image if thumbnail doesn't exist
                 var data = image.ThumbnailData ?? image.ImageData;
-                return File(data, image.ContentType, $"thumb_{image.ImageName}");
+                var contentType = image.ThumbnailData != null ? "image/webp" : image.ContentType;
+                return File(data, contentType, $"thumb_{image.ImageName}");
             }
             catch (Exception ex)
             {

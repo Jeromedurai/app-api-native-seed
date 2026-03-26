@@ -52,6 +52,62 @@ namespace Tenant.Query.Repository.User
         }
 
         /// <summary>
+        /// Google social login — calls SP_USER_SOCIAL_LOGIN which finds or creates the user
+        /// </summary>
+        public async Task<Model.User.LoginResponse> GoogleLogin(string email, string firstName, string lastName, int tenantId)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Google login for {email}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Model.Constant.Constant.StoredProcedures.SP_USER_SOCIAL_LOGIN,
+                    email,
+                    firstName,
+                    lastName,
+                    tenantId
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                    throw new System.Exception("Failed to find or create user via Google login.");
+
+                var rows = result.Tables[0].AsEnumerable();
+                var firstRow = rows.FirstOrDefault() ?? throw new System.Exception("No user data returned.");
+
+                var loginResponse = new Model.User.LoginResponse
+                {
+                    UserId = firstRow.Field<long?>("UserId") ?? 0,
+                    FirstName = firstRow.Field<string>("FirstName"),
+                    LastName = firstRow.Field<string>("LastName"),
+                    Email = firstRow.Field<string>("Email"),
+                    Phone = firstRow.Field<string>("Phone"),
+                    Active = firstRow.Field<bool?>("Active") ?? true,
+                    TenantId = firstRow.Field<long?>("TenantId") ?? tenantId,
+                    LastLogin = firstRow.Field<DateTime?>("LastLogin"),
+                    Roles = rows
+                        .Where(r => !r.IsNull("RoleId"))
+                        .GroupBy(r => r.Field<long>("RoleId"))
+                        .Select(g => g.First())
+                        .Select(r => new Model.User.UserRoleInfo
+                        {
+                            RoleId = r.Field<long>("RoleId"),
+                            RoleName = r.Field<string>("RoleName") ?? "",
+                            RoleDescription = r.Field<string>("RoleDescription") ?? ""
+                        })
+                        .ToList()
+                };
+
+                this.Logger.LogInformation($"Repository: Google login successful for user {loginResponse.UserId}");
+                return loginResponse;
+            }
+            catch (System.Exception ex)
+            {
+                this.Logger.LogError($"Repository: Google login error for {email}: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
         /// Authenticate user login
         /// </summary>
         /// <param name="request">Login request</param>

@@ -120,6 +120,7 @@ namespace Tenant.Query.Model.Constant
             public const string SP_SEARCH_PRODUCTS_ENHANCED = "[dbo].[SP_SEARCH_PRODUCTS_ENHANCED]";
             public const string SP_GET_SEARCH_SUGGESTIONS = "[dbo].[SP_GET_SEARCH_SUGGESTIONS]";
             public const string SP_CREATE_CONTACT_MESSAGE = "[dbo].[SP_CREATE_CONTACT_MESSAGE]";
+            public const string SP_USER_SOCIAL_LOGIN = "[dbo].[SP_USER_SOCIAL_LOGIN]";
         }
 
         public static class AddressType

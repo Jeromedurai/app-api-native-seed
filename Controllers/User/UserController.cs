@@ -17,6 +17,7 @@ using Tenant.Query.Service;
 using Tenant.Query.Service.Authentication;
 using Tenant.Query.Model.Authentication;
 using System.Security.Cryptography;
+using Google.Apis.Auth;
 
 namespace Tenant.Query.Controllers
 {
@@ -783,6 +784,42 @@ namespace Tenant.Query.Controllers
             catch (ArgumentException ex)
             {
                 return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (System.Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+        /// <summary>
+        /// Google social login — verifies the Google ID token and returns a user session
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [Route("auth/google")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Invalid Google token", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public async Task<IActionResult> GoogleLogin([FromBody] Model.User.GoogleLoginRequest request)
+        {
+            try
+            {
+                if (request == null || string.IsNullOrWhiteSpace(request.IdToken))
+                    return BadRequest(new ApiResult { Exception = "Google ID token is required" });
+
+                // Verify the Google ID token
+                GoogleJsonWebSignature.Payload payload;
+                try
+                {
+                    payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken);
+                }
+                catch (InvalidJwtException ex)
+                {
+                    return StatusCode(StatusCodes.Status401Unauthorized, new ApiResult { Exception = "Invalid or expired Google token: " + ex.Message });
+                }
+
+                var loginResponse = await this.Service.GoogleLogin(payload.Email, payload.GivenName ?? "", payload.FamilyName ?? "", request.TenantId);
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = loginResponse });
             }
             catch (System.Exception ex)
             {

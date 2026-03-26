@@ -77,6 +77,25 @@ namespace Tenant.Query.Service.User
         }
 
         /// <summary>
+        /// Google social login — find or create user by email, return LoginResponse
+        /// </summary>
+        public async Task<Model.User.LoginResponse> GoogleLogin(string email, string firstName, string lastName, int tenantId)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Google login attempt for: {email}");
+                var loginResponse = await this.UserRepository.GoogleLogin(email, firstName, lastName, tenantId);
+                this.Logger.LogInformation($"Google login successful for user: {loginResponse.UserId}");
+                return loginResponse;
+            }
+            catch (System.Exception ex)
+            {
+                this.Logger.LogError($"Google login error for {email}: {ex.Message}");
+                throw new System.Exception("An error occurred during Google login.", ex);
+            }
+        }
+
+        /// <summary>
         /// Authenticate user login
         /// </summary>
         /// <param name="request">Login request</param>

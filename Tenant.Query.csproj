@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <PackageReference Include="CorrelationId" Version="3.0.1" />
+    <PackageReference Include="Google.Apis.Auth" Version="1.68.0" />
     <PackageReference Include="Microsoft.AspNetCore.JsonPatch" Version="8.0.10" />
     <PackageReference Include="EnterpriseLibrary.Common.NetCore" Version="6.3.0" />
     <PackageReference Include="EnterpriseLibrary.Data.NetCore" Version="6.3.2" />

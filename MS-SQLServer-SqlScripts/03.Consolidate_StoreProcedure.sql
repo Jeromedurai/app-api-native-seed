@@ -347,6 +347,89 @@ IF OBJECT_ID(N'[dbo].[SP_TOGGLE_REVIEW_ACTIVE]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_TOGGLE_REVIEW_ACTIVE];
 GO
 
+IF OBJECT_ID(N'[dbo].[SP_USER_SOCIAL_LOGIN]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_USER_SOCIAL_LOGIN];
+GO
+
+CREATE OR ALTER PROCEDURE [dbo].[SP_USER_SOCIAL_LOGIN]
+    @Email      NVARCHAR(255),
+    @FirstName  NVARCHAR(100),
+    @LastName   NVARCHAR(100),
+    @TenantId   BIGINT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+        DECLARE @UserId BIGINT;
+        DECLARE @CustomerRoleId BIGINT;
+
+        -- Get the Customer role ID
+        SELECT TOP 1 @CustomerRoleId = RoleId
+        FROM Roles
+        WHERE RoleName = 'Customer' AND Active = 1;
+
+        -- Find existing user by email
+        SELECT @UserId = UserId
+        FROM Users
+        WHERE Email = @Email AND TenantId = @TenantId AND Active = 1;
+
+        -- If not found, create new social user
+        IF @UserId IS NULL
+        BEGIN
+            INSERT INTO Users (
+                FirstName, LastName, Email, Phone,
+                PasswordHash, Salt,
+                TenantId, RoleId,
+                Active, EmailVerified, AgreeToTerms,
+                CreatedAt, UpdatedAt, LastLogin
+            )
+            VALUES (
+                @FirstName, @LastName, @Email, NULL,
+                'SOCIAL_LOGIN', 'SOCIAL_LOGIN',
+                @TenantId, @CustomerRoleId,
+                1, 1, 1,
+                GETUTCDATE(), GETUTCDATE(), GETUTCDATE()
+            );
+
+            SET @UserId = SCOPE_IDENTITY();
+        END
+        ELSE
+        BEGIN
+            -- Update last login for existing user
+            UPDATE Users
+            SET LastLogin = GETUTCDATE(), UpdatedAt = GETUTCDATE()
+            WHERE UserId = @UserId;
+        END
+
+        -- Return same columns as SP_USER_LOGIN
+        SELECT
+            u.UserId,
+            u.FirstName,
+            u.LastName,
+            u.Email,
+            u.Phone,
+            u.Active,
+            u.TenantId,
+            u.LastLogin,
+            u.RoleId,
+            r.RoleName,
+            r.RoleDescription,
+            CAST(0 AS BIT) AS RememberMe
+        FROM Users u
+        LEFT JOIN Roles r ON u.RoleId = r.RoleId
+        WHERE u.UserId = @UserId;
+
+    END TRY
+    BEGIN CATCH
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+        DECLARE @ErrorState INT = ERROR_STATE();
+        RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+    END CATCH
+END
+GO
+
 CREATE PROCEDURE [dbo].[SP_CREATE_CONTACT_MESSAGE]
     @UserId BIGINT = NULL,
     @TenantId BIGINT = NULL,
