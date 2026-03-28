@@ -91,6 +91,21 @@ CREATE TABLE Users (
 	CONSTRAINT PK_Users PRIMARY KEY CLUSTERED (UserId)
 );
 
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'StockNotifications')
+BEGIN
+    CREATE TABLE [dbo].[StockNotifications] (
+        [Id]          INT            IDENTITY(1,1) PRIMARY KEY,
+        [ProductId]   INT            NOT NULL,
+        [TenantId]    INT            NOT NULL,
+        [Email]       NVARCHAR(255)  NOT NULL,
+        [Notified]    BIT            NOT NULL DEFAULT 0,
+        [CreatedAt]   DATETIME       NOT NULL DEFAULT GETUTCDATE(),
+        [NotifiedAt]  DATETIME       NULL
+    );
+    CREATE INDEX IX_StockNotifications_ProductId ON [dbo].[StockNotifications] ([ProductId], [Notified]);
+END
+GO
+
 CREATE TABLE Roles (
 	RoleId BIGINT IDENTITY(1,1) NOT NULL,
 	RoleName NVARCHAR(50) NOT NULL,

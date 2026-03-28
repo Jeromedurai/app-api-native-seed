@@ -351,6 +351,10 @@ IF OBJECT_ID(N'[dbo].[SP_USER_SOCIAL_LOGIN]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_USER_SOCIAL_LOGIN];
 GO
 
+IF OBJECT_ID('dbo.SP_NOTIFY_BACK_IN_STOCK', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.SP_NOTIFY_BACK_IN_STOCK;
+GO
+
 CREATE OR ALTER PROCEDURE [dbo].[SP_USER_SOCIAL_LOGIN]
     @Email      NVARCHAR(255),
     @FirstName  NVARCHAR(100),
@@ -8733,5 +8737,38 @@ BEGIN
 		DECLARE @ErrorState INT = ERROR_STATE();
 		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
 	END CATCH
+END
+GO
+
+CREATE PROCEDURE [dbo].[SP_NOTIFY_BACK_IN_STOCK]
+    @ProductId  INT,
+    @TenantId   INT,
+    @Email      NVARCHAR(255)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+        -- Upsert: if same email+product already pending, skip
+        IF NOT EXISTS (
+            SELECT 1 FROM [dbo].[StockNotifications]
+            WHERE ProductId = @ProductId
+              AND TenantId  = @TenantId
+              AND Email     = @Email
+              AND Notified  = 0
+        )
+        BEGIN
+            INSERT INTO [dbo].[StockNotifications] (ProductId, TenantId, Email)
+            VALUES (@ProductId, @TenantId, @Email);
+        END
+
+        SELECT 'OK' AS Result;
+    END TRY
+    BEGIN CATCH
+        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrSev INT = ERROR_SEVERITY();
+        DECLARE @ErrState INT = ERROR_STATE();
+        RAISERROR(@ErrMsg, @ErrSev, @ErrState);
+    END CATCH
 END
 GO

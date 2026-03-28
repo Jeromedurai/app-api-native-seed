@@ -121,6 +121,7 @@ namespace Tenant.Query.Model.Constant
             public const string SP_GET_SEARCH_SUGGESTIONS = "[dbo].[SP_GET_SEARCH_SUGGESTIONS]";
             public const string SP_CREATE_CONTACT_MESSAGE = "[dbo].[SP_CREATE_CONTACT_MESSAGE]";
             public const string SP_USER_SOCIAL_LOGIN = "[dbo].[SP_USER_SOCIAL_LOGIN]";
+            public const string SP_NOTIFY_BACK_IN_STOCK = "[dbo].[SP_NOTIFY_BACK_IN_STOCK]";
         }
 
         public static class AddressType

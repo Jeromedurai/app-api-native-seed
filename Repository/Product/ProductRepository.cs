@@ -3518,6 +3518,18 @@ namespace Tenant.Query.Repository.Product
             }
         }
 
+        public async Task NotifyBackInStock(Model.Product.StockNotificationRequest request)
+        {
+            await Task.Run(() =>
+                _dataAccess.ExecuteNonQuery(
+                    Constant.StoredProcedures.SP_NOTIFY_BACK_IN_STOCK,
+                    request.ProductId,
+                    request.TenantId,
+                    request.Email
+                )
+            );
+        }
+
         #endregion
 
         #region Helper Methods

@@ -3149,6 +3149,24 @@ namespace Tenant.Query.Controllers.Product
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
             }
         }
+        [HttpPost("notify-stock")]
+        [AllowAnonymous]
+        public async Task<IActionResult> NotifyBackInStock([FromBody] Model.Product.StockNotificationRequest request)
+        {
+            try
+            {
+                if (request == null || !ModelState.IsValid)
+                    return BadRequest(new ApiResult { Exception = "Invalid request" });
+
+                await this.productService.NotifyBackInStock(request);
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = "Notification registered successfully" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
         #endregion
     }
 }

@@ -3212,6 +3212,11 @@ namespace Tenant.Query.Service.Product
             }
         }
 
+        public async Task NotifyBackInStock(Model.Product.StockNotificationRequest request)
+        {
+            await this.productRepository.NotifyBackInStock(request);
+        }
+
         #endregion
     }
 }
