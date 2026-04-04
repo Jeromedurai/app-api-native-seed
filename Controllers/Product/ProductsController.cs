@@ -10,6 +10,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using System.Text.Json;
 using Tenant.API.Base.Controller;
@@ -260,6 +261,117 @@ namespace Tenant.Query.Controllers.Product
             catch (Exception ex)
             {
                 return StatusCode(500, "Internal server error");
+            }
+        }
+
+        /// <summary>
+        /// Upload a single product image and persist original/1500/300 variants.
+        /// </summary>
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status404NotFound, "Product not found", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [HttpPost("tenants/{tenantId:long}/upload-converted-image")]
+        [DisableRequestSizeLimit]
+        [RequestFormLimits(MultipartBodyLengthLimit = MaxFileSize)]
+        public async Task<IActionResult> UploadConvertedImage([FromRoute] long tenantId, [FromForm] Model.Product.AddConvertedProductImageRequest request)
+        {
+            try
+            {
+                if (request == null)
+                    return BadRequest(new ApiResult { Exception = "Request cannot be null" });
+
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                }
+
+                if (request.ProductId <= 0)
+                    return BadRequest(new ApiResult { Exception = "Valid Product ID is required" });
+
+                if (request.Image == null || request.Image.Length == 0)
+                    return BadRequest(new ApiResult { Exception = "Single image file is required" });
+
+                if (request.OrderBy < 0)
+                    return BadRequest(new ApiResult { Exception = "OrderBy must be a non-negative number" });
+
+                if (request.Image.Length > MaxFileSize)
+                    return BadRequest(new ApiResult { Exception = $"File exceeds {MaxFileSize / (1024 * 1024)}MB limit" });
+
+                if (string.IsNullOrWhiteSpace(request.Image.ContentType) ||
+                    !request.Image.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                    return BadRequest(new ApiResult { Exception = "Only image uploads are supported" });
+
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier) ?? User.FindFirst("UserId");
+                if (userIdClaim != null && long.TryParse(userIdClaim.Value, out var claimUserId) && claimUserId > 0)
+                {
+                    // Prefer authenticated identity over client-supplied user id.
+                    request.UserId = claimUserId;
+                }
+
+                var response = await this.Service.AddConvertedProductImage(tenantId, request);
+                response.OriginalUrl = Url.ActionLink(
+                    nameof(GetConvertedImageVariant),
+                    "Products",
+                    new { convertedImageId = response.ConvertedImageId, variant = "original" });
+                response.LargeUrl = Url.ActionLink(
+                    nameof(GetConvertedImageVariant),
+                    "Products",
+                    new { convertedImageId = response.ConvertedImageId, variant = "large" });
+                response.ThumbnailUrl = Url.ActionLink(
+                    nameof(GetConvertedImageVariant),
+                    "Products",
+                    new { convertedImageId = response.ConvertedImageId, variant = "thumbnail" });
+
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = response });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResult { Exception = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Get converted product image variant by converted image id.
+        /// </summary>
+        [AllowAnonymous]
+        [HttpGet("converted-images/{convertedImageId:long}/{variant}")]
+        public async Task<IActionResult> GetConvertedImageVariant([FromRoute] long convertedImageId, [FromRoute] string variant)
+        {
+            try
+            {
+                var image = await this.Service.GetConvertedImageBinaryAsync(convertedImageId);
+                if (image == null)
+                    return NotFound();
+
+                byte[] data = variant?.ToLowerInvariant() switch
+                {
+                    "original" => image.OriginalData,
+                    "large" => image.LargeData,
+                    "thumbnail" => image.ThumbnailData,
+                    _ => null
+                };
+
+                if (data == null)
+                    return NotFound();
+
+                return File(data, image.ContentType, $"{variant}_{image.ImageName}");
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
             }
         }
 
@@ -957,6 +1069,82 @@ namespace Tenant.Query.Controllers.Product
                                 image.ThumbnailUrl = $"{baseUrl}/api/1.0/products/{image.ImageId}/thumbnail";
                                 
                                 // Set Poster to ImageUrl for backward compatibility
+                                if (string.IsNullOrEmpty(image.Poster))
+                                {
+                                    image.Poster = image.ImageUrl;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Search products using inline SQL from SqlQueries.xml (mirrors search-products)
+        /// </summary>
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        [AllowAnonymous]
+        [HttpPost]
+        [Route("tenants/{tenantId}/search-products-inline")]
+        public async Task<IActionResult> SearchProductsInline([FromRoute] string tenantId, [FromBody] ProductSearchPayload payload)
+        {
+            try
+            {
+                if (payload == null)
+                {
+                    return BadRequest(new ApiResult { Exception = "Payload cannot be null" });
+                }
+
+                if (payload.Page < 1)
+                {
+                    payload.Page = 1;
+                }
+
+                if (payload.Limit < 1 || payload.Limit > 100)
+                {
+                    payload.Limit = 10;
+                }
+
+                var validSortFields = new[] { "productName", "price", "rating", "userBuyCount", "created" };
+                if (!validSortFields.Contains(payload.SortBy?.ToLower() ?? "created"))
+                {
+                    payload.SortBy = "created";
+                }
+
+                var validSortOrders = new[] { "asc", "desc" };
+                if (!validSortOrders.Contains(payload.SortOrder?.ToLower() ?? "desc"))
+                {
+                    payload.SortOrder = "desc";
+                }
+
+                var result = await this.Service.SearchProductsInlineAsync(tenantId, payload);
+
+                if (result?.Products != null)
+                {
+                    foreach (var product in result.Products)
+                    {
+                        if (product.Images != null)
+                        {
+                            foreach (var image in product.Images)
+                            {
+                                var request = HttpContext.Request;
+                                var baseUrl = $"{request.Scheme}://{request.Host}";
+                                image.ImageUrl = $"{baseUrl}/api/1.0/products/{image.ImageId}";
+                                image.ThumbnailUrl = $"{baseUrl}/api/1.0/products/{image.ImageId}/thumbnail";
+
                                 if (string.IsNullOrEmpty(image.Poster))
                                 {
                                     image.Poster = image.ImageUrl;

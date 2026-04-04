@@ -1,4 +1,120 @@
 <?xml version="1.0" encoding="utf-8"?>
 <queries>
+<query Id="SearchProducts">
+<![CDATA[
+DECLARE @TenantId BIGINT = {0}
+       ,@Page INT = {1}
+       ,@Limit INT = {2}
+       ,@Offset INT = {3}
+       ,@Search NVARCHAR(255) = {4}
+       ,@Category INT = {5}
+       ,@MinPrice DECIMAL(18,2) = {6}
+       ,@MaxPrice DECIMAL(18,2) = {7}
+       ,@Rating INT = {8}
+       ,@InStock BIT = {9}
+       ,@BestSeller BIT = {10}
+       ,@HasOffer BIT = {11}
+       ,@SortBy NVARCHAR(50) = {12}
+       ,@SortOrder NVARCHAR(10) = {13};
 
+WITH FilteredProducts AS (
+    SELECT 
+        p.ProductId,
+        p.TenantId,
+        p.ProductName,
+        p.ProductDescription,
+        p.ProductCode,
+        p.FullDescription,
+        p.Specification,
+        p.Story,
+        p.PackQuantity,
+        p.Quantity,
+        p.Total,
+        p.Price,
+        p.Category,
+        p.Rating,
+        p.Active,
+        p.Trending,
+        p.UserBuyCount,
+        p.[Return],
+        p.Created,
+        p.Modified,
+        CASE WHEN p.Quantity > 0 THEN 1 ELSE 0 END as InStock,
+        p.BestSeller,
+        p.DeliveryDate,
+        p.Offer,
+        p.OrderBy,
+        p.UserId,
+        p.Overview,
+        p.LongDescription
+    FROM dbo.Products p WITH (NOLOCK)
+    WHERE p.TenantId = @TenantId
+      AND p.Active = 1
+      AND (@Search IS NULL OR @Search = '' OR (p.ProductName LIKE '%' + @Search + '%' OR p.ProductDescription LIKE '%' + @Search + '%' OR p.ProductCode LIKE '%' + @Search + '%'))
+      AND (@Category IS NULL OR p.Category = @Category)
+      AND (@MinPrice IS NULL OR p.Price >= @MinPrice)
+      AND (@MaxPrice IS NULL OR p.Price <= @MaxPrice)
+      AND (@Rating IS NULL OR p.Rating >= @Rating)
+      AND (@InStock IS NULL OR (@InStock = 1 AND p.Quantity > 0) OR (@InStock = 0 AND p.Quantity = 0))
+      AND (@BestSeller IS NULL OR @BestSeller = 0 OR p.BestSeller = 1)
+      AND (@HasOffer IS NULL OR @HasOffer = 0 OR (p.Offer IS NOT NULL AND p.Offer != ''))
+)
+SELECT 
+    ProductId,
+    TenantId,
+    ProductName,
+    ProductDescription,
+    ProductCode,
+    FullDescription,
+    Specification,
+    Story,
+    PackQuantity,
+    Quantity,
+    Total,
+    Price,
+    Category,
+    Rating,
+    Active,
+    Trending,
+    UserBuyCount,
+    [Return],
+    Created,
+    Modified,
+    InStock,
+    BestSeller,
+    DeliveryDate,
+    Offer,
+    OrderBy,
+    UserId,
+    Overview,
+    LongDescription
+FROM FilteredProducts
+ORDER BY 
+    CASE WHEN @SortBy = 'productName' AND @SortOrder = 'asc' THEN ProductName END ASC,
+    CASE WHEN @SortBy = 'productName' AND @SortOrder = 'desc' THEN ProductName END DESC,
+    CASE WHEN @SortBy = 'price' AND @SortOrder = 'asc' THEN Price END ASC,
+    CASE WHEN @SortBy = 'price' AND @SortOrder = 'desc' THEN Price END DESC,
+    CASE WHEN @SortBy = 'rating' AND @SortOrder = 'asc' THEN Rating END ASC,
+    CASE WHEN @SortBy = 'rating' AND @SortOrder = 'desc' THEN Rating END DESC,
+    CASE WHEN @SortBy = 'userBuyCount' AND @SortOrder = 'asc' THEN UserBuyCount END ASC,
+    CASE WHEN @SortBy = 'userBuyCount' AND @SortOrder = 'desc' THEN UserBuyCount END DESC,
+    CASE WHEN (@SortBy = 'created' OR @SortBy NOT IN ('productName','price','rating','userBuyCount','created')) AND @SortOrder = 'asc' THEN Created END ASC,
+    CASE WHEN (@SortBy = 'created' OR @SortBy NOT IN ('productName','price','rating','userBuyCount','created')) AND @SortOrder = 'desc' THEN Created END DESC
+OFFSET @Offset ROWS
+FETCH NEXT @Limit ROWS ONLY;
+
+SELECT COUNT(*) AS TotalCount
+FROM dbo.Products p WITH (NOLOCK)
+WHERE p.TenantId = @TenantId
+  AND p.Active = 1
+  AND (@Search IS NULL OR @Search = '' OR (p.ProductName LIKE '%' + @Search + '%' OR p.ProductDescription LIKE '%' + @Search + '%' OR p.ProductCode LIKE '%' + @Search + '%'))
+  AND (@Category IS NULL OR p.Category = @Category)
+  AND (@MinPrice IS NULL OR p.Price >= @MinPrice)
+  AND (@MaxPrice IS NULL OR p.Price <= @MaxPrice)
+  AND (@Rating IS NULL OR p.Rating >= @Rating)
+  AND (@InStock IS NULL OR (@InStock = 1 AND p.Quantity > 0) OR (@InStock = 0 AND p.Quantity = 0))
+  AND (@BestSeller IS NULL OR @BestSeller = 0 OR p.BestSeller = 1)
+  AND (@HasOffer IS NULL OR @HasOffer = 0 OR (p.Offer IS NOT NULL AND p.Offer != ''));
+]]>
+</query>
 </queries>

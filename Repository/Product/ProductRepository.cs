@@ -4,8 +4,10 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using Tenant.API.Base.Repository;
 using Tenant.Query.Context.Product;
 using Tenant.Query.Model.Product;
@@ -665,6 +667,20 @@ namespace Tenant.Query.Repository.Product
             }
         }
 
+        public async Task<DataTable> GetConvertedImageByIdAsync(long convertedImageId)
+        {
+            try
+            {
+                return await Task.Run(() => _dataAccess.ExecuteDataTable(
+                    Model.Constant.Constant.StoredProcedures.SP_GET_PRODUCT_CONVERTED_IMAGE_BY_ID,
+                    convertedImageId));
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
         /// <summary>
         /// 
         /// </summary>
@@ -692,6 +708,58 @@ namespace Tenant.Query.Repository.Product
                 return Convert.ToInt64(cmd.Parameters["@RETURN_VALUE"].Value.ToString());
             }
             catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        public async Task<Model.Product.AddConvertedProductImageResponse> AddConvertedProductImage(
+            long tenantId,
+            Model.Product.AddConvertedProductImageRequest request,
+            string imageName,
+            string contentType,
+            long fileSize,
+            byte[] originalData,
+            byte[] largeData,
+            byte[] thumbnailData)
+        {
+            try
+            {
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Model.Constant.Constant.StoredProcedures.SP_ADD_PRODUCT_CONVERTED_IMAGE,
+                    request.ProductId,
+                    tenantId,
+                    request.UserId ?? (object)DBNull.Value,
+                    imageName,
+                    contentType,
+                    fileSize,
+                    originalData,
+                    largeData,
+                    thumbnailData,
+                    request.Main,
+                    request.OrderBy
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                {
+                    throw new KeyNotFoundException("Product not found or image could not be stored");
+                }
+
+                var row = result.Tables[0].Rows[0];
+                return new Model.Product.AddConvertedProductImageResponse
+                {
+                    ConvertedImageId = Convert.ToInt64(row["ConvertedImageId"]),
+                    ProductId = Convert.ToInt64(row["ProductId"]),
+                    ImageName = row["ImageName"]?.ToString() ?? string.Empty,
+                    ContentType = row["ContentType"]?.ToString() ?? "application/octet-stream",
+                    FileSize = row["FileSize"] != DBNull.Value ? Convert.ToInt64(row["FileSize"]) : 0,
+                    Main = row["Main"] != DBNull.Value && Convert.ToBoolean(row["Main"]),
+                    Active = row["Active"] == DBNull.Value || Convert.ToBoolean(row["Active"]),
+                    OrderBy = row["OrderBy"] != DBNull.Value ? Convert.ToInt32(row["OrderBy"]) : 0,
+                    CreatedAt = row["CreatedAt"] != DBNull.Value ? Convert.ToDateTime(row["CreatedAt"]) : DateTime.UtcNow
+                };
+            }
+            catch (Exception)
             {
                 throw;
             }
@@ -1233,6 +1301,73 @@ namespace Tenant.Query.Repository.Product
             {
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Search products using single inline SQL from SqlQueries.xml (one round-trip, two result sets)
+        /// </summary>
+        public DataSet SearchProductsFromQuery(string tenantId, ProductSearchPayload payload, int offset)
+        {
+            try
+            {
+                var sql = LoadQueryFromXml(Constant.SearchProducts);
+                if (string.IsNullOrEmpty(sql))
+                    throw new InvalidOperationException($"Query '{Constant.SearchProducts}' not found in SqlQueries.xml");
+
+                using (var conn = new SqlConnection(dbConnectionString))
+                {
+                    conn.Open();
+                    var paramSql = sql;
+                    for (int i = 0; i <= 13; i++)
+                        paramSql = paramSql.Replace("{" + i + "}", "@p" + i);
+
+                    using (var cmd = new SqlCommand(paramSql, conn))
+                    {
+                        cmd.CommandTimeout = 30;
+                        cmd.Parameters.AddWithValue("@p0", Convert.ToInt64(tenantId));
+                        cmd.Parameters.AddWithValue("@p1", payload.Page);
+                        cmd.Parameters.AddWithValue("@p2", payload.Limit);
+                        cmd.Parameters.AddWithValue("@p3", offset);
+                        cmd.Parameters.AddWithValue("@p4", (object)(payload.Search ?? string.Empty) ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@p5", (object)payload.Category ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@p6", (object)payload.MinPrice ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@p7", (object)payload.MaxPrice ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@p8", (object)payload.Rating ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@p9", (object)payload.InStock ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@p10", (object)payload.BestSeller ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@p11", (object)payload.HasOffer ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@p12", payload.SortBy ?? "created");
+                        cmd.Parameters.AddWithValue("@p13", payload.SortOrder ?? "desc");
+
+                        using (var adapter = new SqlDataAdapter(cmd))
+                        {
+                            var ds = new DataSet();
+                            adapter.Fill(ds);
+                            return ds;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError(ex, "Error in SearchProductsFromQuery");
+                throw;
+            }
+        }
+
+        private static string LoadQueryFromXml(string queryId)
+        {
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var xmlPath = Path.Combine(baseDir, "MS-SQLServer-SqlScripts", "SqlQueries.xml");
+            if (!File.Exists(xmlPath))
+                xmlPath = Path.Combine(baseDir, "..", "MS-SQLServer-SqlScripts", "SqlQueries.xml");
+            if (!File.Exists(xmlPath))
+                return null;
+
+            var doc = XDocument.Load(xmlPath);
+            var query = doc.Root?.Elements("query")
+                .FirstOrDefault(q => q.Attribute("Id")?.Value == queryId);
+            return query?.Value?.Trim();
         }
 
         /// <summary>

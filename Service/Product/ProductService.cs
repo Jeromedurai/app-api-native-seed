@@ -2,7 +2,9 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.Formats.Webp;
 using SixLabors.ImageSharp.Processing;
 using System;
@@ -43,6 +45,12 @@ namespace Tenant.Query.Service.Product
         private readonly IConfiguration _configuration;
 
         #endregion
+
+        private const int DefaultJpegQuality = 90;
+        private const int DefaultWebpQuality = 90;
+        private const bool DefaultThumbSharpenEnabled = true;
+        private const double DefaultThumbSharpenSigma = 0.8d;
+        private const string DefaultQualityProfile = "balanced";
 
         public ProductService(Repository.Product.ProductRepository productRepository,
                             UserRepository userRepository,
@@ -211,6 +219,282 @@ namespace Tenant.Query.Service.Product
                 ".webp" => "image/webp",
                 _ => "application/octet-stream"
             };
+        }
+
+        public async Task<Model.Product.AddConvertedProductImageResponse> AddConvertedProductImage(long tenantId, Model.Product.AddConvertedProductImageRequest request)
+        {
+            try
+            {
+                if (request == null)
+                    throw new ArgumentNullException(nameof(request));
+
+                if (tenantId <= 0)
+                    throw new ArgumentException("Valid tenant ID is required");
+
+                if (request.ProductId <= 0)
+                    throw new ArgumentException("Valid Product ID is required");
+
+                if (request.Image == null || request.Image.Length == 0)
+                    throw new ArgumentException("Image file is required");
+
+                if (request.OrderBy < 0)
+                    throw new ArgumentException("OrderBy must be a non-negative number");
+
+                var qualityProfile = string.IsNullOrWhiteSpace(request.QualityProfile)
+                    ? DefaultQualityProfile
+                    : request.QualityProfile.Trim().ToLowerInvariant();
+
+                if (qualityProfile != "balanced" && qualityProfile != "high" && qualityProfile != "web")
+                {
+                    throw new ArgumentException("QualityProfile must be one of: balanced, high, web");
+                }
+
+                if (request.Image.Length > 10 * 1024 * 1024)
+                    throw new ArgumentException("Image file exceeds 10MB limit");
+
+                var contentType = request.Image.ContentType?.ToLowerInvariant() ?? string.Empty;
+                if (!contentType.StartsWith("image/"))
+                    throw new ArgumentException("Only image uploads are supported");
+
+                if (contentType == "application/pdf")
+                    throw new ArgumentException("PDF uploads are not supported");
+
+                byte[] originalData;
+                using (var memoryStream = new MemoryStream())
+                {
+                    await request.Image.CopyToAsync(memoryStream);
+                    originalData = memoryStream.ToArray();
+                }
+
+                if (!IsImageValid(originalData))
+                    throw new ArgumentException("Invalid image file");
+
+                var conversionOptions = BuildConversionOptions(qualityProfile);
+                var variants = await CreateConvertedVariantsAsync(originalData, conversionOptions);
+                var normalizedContentType = GetContentType(request.Image.FileName);
+
+                var response = await this.productRepository.AddConvertedProductImage(
+                    tenantId,
+                    request,
+                    Path.GetFileName(request.Image.FileName),
+                    normalizedContentType,
+                    request.Image.Length,
+                    originalData,
+                    variants.LargeData,
+                    variants.ThumbnailData);
+
+                response.OriginalWidth = variants.OriginalWidth;
+                response.OriginalHeight = variants.OriginalHeight;
+                response.LargeWidth = variants.LargeWidth;
+                response.LargeHeight = variants.LargeHeight;
+                response.ThumbnailWidth = variants.ThumbnailWidth;
+                response.ThumbnailHeight = variants.ThumbnailHeight;
+                response.OriginalFileSize = originalData.LongLength;
+                response.LargeFileSize = variants.LargeData.LongLength;
+                response.ThumbnailFileSize = variants.ThumbnailData.LongLength;
+                response.QualityProfileApplied = conversionOptions.ProfileName;
+                response.JpegQualityApplied = conversionOptions.JpegQuality;
+                response.WebpQualityApplied = conversionOptions.WebpQuality;
+                response.ThumbnailSharpenApplied = conversionOptions.ThumbSharpenEnabled;
+                response.ThumbnailSharpenSigmaApplied = conversionOptions.ThumbSharpenSigma;
+
+                return response;
+            }
+            catch (Exception ex) when (ex.Message.Contains("Product not found", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new KeyNotFoundException(ex.Message);
+            }
+        }
+
+        public async Task<Model.Product.ProductConvertedImageBinary> GetConvertedImageBinaryAsync(long convertedImageId)
+        {
+            if (convertedImageId <= 0)
+                return null;
+
+            var imageDt = await this.productRepository.GetConvertedImageByIdAsync(convertedImageId);
+            if (imageDt == null || imageDt.Rows.Count == 0)
+                return null;
+
+            var row = imageDt.Rows[0];
+            return new Model.Product.ProductConvertedImageBinary
+            {
+                ConvertedImageId = GetColumnValue<long>(row, "ConvertedImageId", 0),
+                ProductId = GetColumnValue<long>(row, "ProductId", 0),
+                ImageName = GetColumnValue<string>(row, "ImageName", string.Empty),
+                ContentType = GetColumnValue<string>(row, "ContentType", "application/octet-stream"),
+                FileSize = GetColumnValue<long>(row, "FileSize", 0),
+                OriginalData = GetColumnValue<byte[]>(row, "OriginalData", null),
+                LargeData = GetColumnValue<byte[]>(row, "LargeData", null),
+                ThumbnailData = GetColumnValue<byte[]>(row, "ThumbnailData", null),
+                Main = GetColumnValue<bool>(row, "Main", false),
+                Active = GetColumnValue<bool>(row, "Active", true),
+                OrderBy = GetColumnValue<int>(row, "OrderBy", 0),
+                CreatedAt = GetColumnValue<DateTime>(row, "CreatedAt", DateTime.UtcNow)
+            };
+        }
+
+        private async Task<GeneratedVariants> CreateConvertedVariantsAsync(byte[] originalData, ConversionOptions conversionOptions)
+        {
+            using var image = await Image.LoadAsync(originalData);
+            var sourceWidth = image.Width;
+            var sourceHeight = image.Height;
+
+            var detectedFormat = image.Metadata?.DecodedImageFormat;
+            var encoder = ResolveEncoder(detectedFormat, conversionOptions);
+
+            // Align with converter behavior: proportional resize with no upscale for 1500 variant.
+            var largeWidth = GetWidthProportional(sourceWidth, sourceHeight, 1500, 1500);
+            var largeHeight = GetHeightProportional(sourceWidth, sourceHeight, 1500, 1500);
+            if (sourceWidth < 1500 && sourceHeight < 1500)
+            {
+                largeWidth = sourceWidth;
+                largeHeight = sourceHeight;
+            }
+
+            var thumbWidth = GetWidthProportional(sourceWidth, sourceHeight, 300, 300);
+            var thumbHeight = GetHeightProportional(sourceWidth, sourceHeight, 300, 300);
+
+            using var largeImage = image.Clone(x => x.Resize(new ResizeOptions
+            {
+                Size = new Size(largeWidth, largeHeight),
+                Mode = ResizeMode.Max
+            }));
+
+            using var thumbImage = image.Clone(x =>
+            {
+                x.Resize(new ResizeOptions
+                {
+                    Size = new Size(thumbWidth, thumbHeight),
+                    Mode = ResizeMode.Max
+                });
+
+                if (conversionOptions.ThumbSharpenEnabled)
+                {
+                    x.GaussianSharpen((float)conversionOptions.ThumbSharpenSigma);
+                }
+            });
+
+            var largeData = await EncodeImageAsync(largeImage, encoder);
+            var thumbnailData = await EncodeImageAsync(thumbImage, encoder);
+            return new GeneratedVariants
+            {
+                OriginalWidth = sourceWidth,
+                OriginalHeight = sourceHeight,
+                LargeWidth = largeImage.Width,
+                LargeHeight = largeImage.Height,
+                ThumbnailWidth = thumbImage.Width,
+                ThumbnailHeight = thumbImage.Height,
+                LargeData = largeData,
+                ThumbnailData = thumbnailData
+            };
+        }
+
+        private static int GetWidthProportional(int imageWidth, int imageHeight, int targetWidth, int targetHeight)
+        {
+            if (imageWidth > imageHeight)
+                return targetWidth;
+
+            return (int)((double)(targetHeight * imageWidth) / imageHeight);
+        }
+
+        private static int GetHeightProportional(int imageWidth, int imageHeight, int targetWidth, int targetHeight)
+        {
+            if (imageHeight > imageWidth)
+                return targetHeight;
+
+            return (int)((double)(targetWidth * imageHeight) / imageWidth);
+        }
+
+        private static async Task<byte[]> EncodeImageAsync(Image image, IImageEncoder encoder)
+        {
+            using var stream = new MemoryStream();
+            await image.SaveAsync(stream, encoder);
+            return stream.ToArray();
+        }
+
+        private IImageEncoder ResolveEncoder(IImageFormat imageFormat, ConversionOptions conversionOptions)
+        {
+            var formatName = imageFormat?.Name?.ToLowerInvariant();
+
+            return formatName switch
+            {
+                "jpeg" => new JpegEncoder { Quality = conversionOptions.JpegQuality },
+                "jpg" => new JpegEncoder { Quality = conversionOptions.JpegQuality },
+                "webp" => new WebpEncoder { Quality = conversionOptions.WebpQuality },
+                "png" => new PngEncoder(),
+                _ => new JpegEncoder { Quality = conversionOptions.JpegQuality }
+            };
+        }
+
+        private ConversionOptions BuildConversionOptions(string profile)
+        {
+            return profile switch
+            {
+                "high" => new ConversionOptions
+                {
+                    ProfileName = "high",
+                    JpegQuality = GetConversionSettingInt("ImageConversion:Profiles:High:JpegQuality", 92, 1, 100),
+                    WebpQuality = GetConversionSettingInt("ImageConversion:Profiles:High:WebpQuality", 92, 1, 100),
+                    ThumbSharpenEnabled = GetConversionSettingBool("ImageConversion:Profiles:High:ThumbSharpenEnabled", true),
+                    ThumbSharpenSigma = GetConversionSettingDouble("ImageConversion:Profiles:High:ThumbSharpenSigma", 1.0d)
+                },
+                "web" => new ConversionOptions
+                {
+                    ProfileName = "web",
+                    JpegQuality = GetConversionSettingInt("ImageConversion:Profiles:Web:JpegQuality", 80, 1, 100),
+                    WebpQuality = GetConversionSettingInt("ImageConversion:Profiles:Web:WebpQuality", 80, 1, 100),
+                    ThumbSharpenEnabled = GetConversionSettingBool("ImageConversion:Profiles:Web:ThumbSharpenEnabled", false),
+                    ThumbSharpenSigma = GetConversionSettingDouble("ImageConversion:Profiles:Web:ThumbSharpenSigma", 0.8d)
+                },
+                _ => new ConversionOptions
+                {
+                    ProfileName = "balanced",
+                    JpegQuality = GetConversionSettingInt("ImageConversion:JpegQuality", DefaultJpegQuality, 1, 100),
+                    WebpQuality = GetConversionSettingInt("ImageConversion:WebpQuality", DefaultWebpQuality, 1, 100),
+                    ThumbSharpenEnabled = GetConversionSettingBool("ImageConversion:ThumbSharpenEnabled", DefaultThumbSharpenEnabled),
+                    ThumbSharpenSigma = GetConversionSettingDouble("ImageConversion:ThumbSharpenSigma", DefaultThumbSharpenSigma)
+                }
+            };
+        }
+
+        private int GetConversionSettingInt(string key, int defaultValue, int min, int max)
+        {
+            var parsedValue = _configuration.GetValue<int?>(key) ?? defaultValue;
+            if (parsedValue < min) return min;
+            if (parsedValue > max) return max;
+            return parsedValue;
+        }
+
+        private bool GetConversionSettingBool(string key, bool defaultValue)
+        {
+            return _configuration.GetValue<bool?>(key) ?? defaultValue;
+        }
+
+        private double GetConversionSettingDouble(string key, double defaultValue)
+        {
+            var parsedValue = _configuration.GetValue<double?>(key) ?? defaultValue;
+            return parsedValue > 0 ? parsedValue : defaultValue;
+        }
+
+        private sealed class GeneratedVariants
+        {
+            public int OriginalWidth { get; set; }
+            public int OriginalHeight { get; set; }
+            public int LargeWidth { get; set; }
+            public int LargeHeight { get; set; }
+            public int ThumbnailWidth { get; set; }
+            public int ThumbnailHeight { get; set; }
+            public byte[] LargeData { get; set; }
+            public byte[] ThumbnailData { get; set; }
+        }
+
+        private sealed class ConversionOptions
+        {
+            public string ProfileName { get; set; }
+            public int JpegQuality { get; set; }
+            public int WebpQuality { get; set; }
+            public bool ThumbSharpenEnabled { get; set; }
+            public double ThumbSharpenSigma { get; set; }
         }
 
         /// <summary>
@@ -1375,6 +1659,59 @@ namespace Tenant.Query.Service.Product
             catch (Exception ex)
             {
                 throw new Exception("An error occurred while searching products.", ex);
+            }
+        }
+
+        /// <summary>
+        /// Search products using inline SQL from SqlQueries.xml (mirrors SearchProductsAsync)
+        /// </summary>
+        public async Task<ProductSearchResponse> SearchProductsInlineAsync(string tenantId, ProductSearchPayload payload)
+        {
+            try
+            {
+                if (payload == null)
+                    throw new ArgumentNullException(nameof(payload), "Search payload cannot be null.");
+
+                int offset = (payload.Page - 1) * payload.Limit;
+
+                var searchResults = await Task.Run(() => productRepository.SearchProductsFromQuery(tenantId, payload, offset));
+
+                var response = new ProductSearchResponse();
+
+                if (searchResults != null && searchResults.Tables.Count >= 2)
+                {
+                    var productTable = searchResults.Tables[0];
+                    var countTable = searchResults.Tables[1];
+
+                    response.Products = MapProductSearchResults(productTable);
+
+                    var productIds = response.Products.Select(p => p.ProductId).ToList();
+                    var allImages = await LoadProductImagesBatchAsync(productIds);
+
+                    foreach (var product in response.Products)
+                    {
+                        product.Images = allImages.ContainsKey(product.ProductId)
+                            ? allImages[product.ProductId]
+                            : new List<ProductSearchImageInfo>();
+                    }
+
+                    int totalCount = countTable.Rows.Count > 0 ? Convert.ToInt32(countTable.Rows[0]["TotalCount"]) : 0;
+                    response.Pagination = new PaginationInfo
+                    {
+                        Page = payload.Page,
+                        Limit = payload.Limit,
+                        Total = totalCount,
+                        TotalPages = (int)Math.Ceiling((double)totalCount / payload.Limit),
+                        HasNext = payload.Page * payload.Limit < totalCount,
+                        HasPrevious = payload.Page > 1
+                    };
+                }
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("An error occurred while searching products (inline).", ex);
             }
         }
 

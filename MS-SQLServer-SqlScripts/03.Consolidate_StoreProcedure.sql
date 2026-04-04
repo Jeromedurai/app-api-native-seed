@@ -155,6 +155,14 @@ IF OBJECT_ID(N'[dbo].[SP_GET_IMAGE_BY_ID]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_GET_IMAGE_BY_ID];
 GO
 
+IF OBJECT_ID(N'[dbo].[SP_ADD_PRODUCT_CONVERTED_IMAGE]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_ADD_PRODUCT_CONVERTED_IMAGE];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_GET_PRODUCT_CONVERTED_IMAGE_BY_ID]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_GET_PRODUCT_CONVERTED_IMAGE_BY_ID];
+GO
+
 IF OBJECT_ID(N'[dbo].[SP_GET_PRODUCT_LIST_FILTERED]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_GET_PRODUCT_LIST_FILTERED];
 GO
@@ -1999,6 +2007,151 @@ BEGIN
 		DECLARE @ErrorState INT = ERROR_STATE();
 		
 		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+	END CATCH
+END
+GO
+
+CREATE PROCEDURE [dbo].[SP_GET_PRODUCT_CONVERTED_IMAGE_BY_ID]
+	@ConvertedImageId BIGINT
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	BEGIN TRY
+		IF @ConvertedImageId IS NULL OR @ConvertedImageId <= 0
+		BEGIN
+			RAISERROR('Invalid ConvertedImageId parameter.', 16, 1);
+			RETURN;
+		END
+
+		SELECT
+			pci.ConvertedImageId,
+			pci.ProductId,
+			pci.ImageName,
+			pci.ContentType,
+			pci.FileSize,
+			pci.OriginalData,
+			pci.LargeData,
+			pci.ThumbnailData,
+			pci.Main,
+			pci.Active,
+			pci.OrderBy,
+			pci.CreatedAt,
+			pci.Modified,
+			pci.CreatedBy
+		FROM ProductConvertedImages pci
+		WHERE pci.ConvertedImageId = @ConvertedImageId
+		AND pci.Active = 1;
+	END TRY
+	BEGIN CATCH
+		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+		DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+		DECLARE @ErrorState INT = ERROR_STATE();
+
+		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+	END CATCH
+END
+GO
+
+CREATE PROCEDURE [dbo].[SP_ADD_PRODUCT_CONVERTED_IMAGE]
+	@ProductId BIGINT,
+	@TenantId BIGINT,
+	@UserId BIGINT = NULL,
+	@ImageName NVARCHAR(255),
+	@ContentType NVARCHAR(100),
+	@FileSize BIGINT,
+	@OriginalData VARBINARY(MAX),
+	@LargeData VARBINARY(MAX),
+	@ThumbnailData VARBINARY(MAX),
+	@Main BIT = 0,
+	@OrderBy INT = 0
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+
+		DECLARE @CurrentTime DATETIME = GETUTCDATE();
+		DECLARE @NewConvertedImageId BIGINT;
+
+		IF NOT EXISTS (SELECT 1 FROM Products WHERE ProductId = @ProductId AND TenantId = @TenantId AND Active = 1)
+		BEGIN
+			RAISERROR('Product not found or does not belong to this tenant.', 16, 1);
+			RETURN;
+		END
+
+		IF @Main = 1
+		BEGIN
+			UPDATE ProductConvertedImages
+			SET Main = 0,
+				Modified = @CurrentTime
+			WHERE ProductId = @ProductId
+			  AND Active = 1;
+		END
+
+		INSERT INTO ProductConvertedImages (
+			ProductId,
+			ImageName,
+			ContentType,
+			FileSize,
+			OriginalData,
+			LargeData,
+			ThumbnailData,
+			Main,
+			Active,
+			OrderBy,
+			CreatedAt,
+			Modified,
+			CreatedBy,
+			ModifiedBy
+		) VALUES (
+			@ProductId,
+			@ImageName,
+			@ContentType,
+			@FileSize,
+			@OriginalData,
+			@LargeData,
+			@ThumbnailData,
+			@Main,
+			1,
+			CASE
+				WHEN @OrderBy > 0 THEN @OrderBy
+				ELSE (SELECT ISNULL(MAX(OrderBy), 0) + 1 FROM ProductConvertedImages WHERE ProductId = @ProductId AND Active = 1)
+			END,
+			@CurrentTime,
+			@CurrentTime,
+			@UserId,
+			@UserId
+		);
+
+		SET @NewConvertedImageId = SCOPE_IDENTITY();
+
+		UPDATE Products
+		SET Modified = @CurrentTime
+		WHERE ProductId = @ProductId;
+
+		SELECT
+			pci.ConvertedImageId,
+			pci.ProductId,
+			pci.ImageName,
+			pci.ContentType,
+			pci.FileSize,
+			pci.Main,
+			pci.Active,
+			pci.OrderBy,
+			pci.CreatedAt
+		FROM ProductConvertedImages pci
+		WHERE pci.ConvertedImageId = @NewConvertedImageId;
+
+		COMMIT TRANSACTION;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+
+		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+		RAISERROR(@ErrorMessage, 16, 1);
 	END CATCH
 END
 GO

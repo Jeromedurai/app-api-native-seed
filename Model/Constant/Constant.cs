@@ -2,6 +2,7 @@ namespace Tenant.Query.Model.Constant
 {
     public static class Constant
     {
+        public const string SearchProducts = "SearchProducts";
         public const string SA_GET_PRODUCTS_FOR_CATEGORY_MAPPING = "SA_GET_PRODUCTS_FOR_CATEGORY_MAPPING";
         public const string XC_GET_PRODUCT_MASTER_LIST_TESTING = "[dbo].[XC_GET_PRODUCT_MASTER_LIST_TESTING]";
 
@@ -75,6 +76,8 @@ namespace Tenant.Query.Model.Constant
             public const string SP_GET_IMAGES_BY_PRODUCT_ID = "[dbo].[SP_GET_IMAGES_BY_PRODUCT_ID]";
             public const string SP_UPDATE_PRODUCT_IMAGE = "[dbo].[SP_UPDATE_PRODUCT_IMAGE]";
             public const string SP_DELETE_PRODUCT_IMAGE = "[dbo].[SP_DELETE_PRODUCT_IMAGE]";
+            public const string SP_ADD_PRODUCT_CONVERTED_IMAGE = "[dbo].[SP_ADD_PRODUCT_CONVERTED_IMAGE]";
+            public const string SP_GET_PRODUCT_CONVERTED_IMAGE_BY_ID = "[dbo].[SP_GET_PRODUCT_CONVERTED_IMAGE_BY_ID]";
             public const string SP_CREATE_RAZORPAY_ORDER = "[dbo].[SP_CREATE_RAZORPAY_ORDER]";
             public const string SP_VERIFY_RAZORPAY_PAYMENT = "[dbo].[SP_VERIFY_RAZORPAY_PAYMENT]";
             public const string SP_UPDATE_ORDER_STATUS_WITH_PAYMENT = "[dbo].[SP_UPDATE_ORDER_STATUS_WITH_PAYMENT]";
