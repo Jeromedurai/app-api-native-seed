@@ -231,6 +231,34 @@ namespace Tenant.Query.Repository.Product
         }
 
         /// <summary>
+        /// Get top reviews (rating >= minRating) across all products for a tenant
+        /// </summary>
+        public async Task<List<ProductReviewResponse>> GetTopReviews(long tenantId, int minRating = 4, int limit = 20)
+        {
+            try
+            {
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Constant.StoredProcedures.SP_GET_TOP_REVIEWS,
+                    tenantId,
+                    minRating,
+                    limit
+                ));
+
+                if (result == null || result.Tables.Count == 0)
+                    return new List<ProductReviewResponse>();
+
+                return result.Tables[0].AsEnumerable()
+                    .Select(row => MapToReviewResponse(row))
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Error getting top reviews: {ex.Message}", ex);
+                throw;
+            }
+        }
+
+        /// <summary>
         /// Map DataRow to ProductReviewResponse
         /// </summary>
         public async Task<AdminReviewListResponse> GetAllReviewsAdmin(long? tenantId, int page, int limit)

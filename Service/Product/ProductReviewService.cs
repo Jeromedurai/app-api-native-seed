@@ -65,6 +65,23 @@ namespace Tenant.Query.Service.Product
         }
 
         /// <summary>
+        /// Get top reviews (rating >= minRating) for home page ticker
+        /// </summary>
+        public async Task<List<ProductReviewResponse>> GetTopReviews(long tenantId, int minRating = 4, int limit = 20)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Service: Getting top reviews for tenant {tenantId}");
+                return await _reviewRepository.GetTopReviews(tenantId, minRating, limit);
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Service: Error getting top reviews: {ex.Message}", ex);
+                throw;
+            }
+        }
+
+        /// <summary>
         /// Get review statistics for a product
         /// </summary>
         public async Task<ProductReviewStatsResponse> GetReviewStats(long productId, long? tenantId = null)

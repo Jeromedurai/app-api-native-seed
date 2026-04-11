@@ -335,7 +335,8 @@ namespace Tenant.Query.Service.Product
 
         private async Task<GeneratedVariants> CreateConvertedVariantsAsync(byte[] originalData, ConversionOptions conversionOptions)
         {
-            using var image = await Image.LoadAsync(originalData);
+            using var ms = new MemoryStream(originalData);
+            using var image = await Image.LoadAsync(ms);
             var sourceWidth = image.Width;
             var sourceHeight = image.Height;
 

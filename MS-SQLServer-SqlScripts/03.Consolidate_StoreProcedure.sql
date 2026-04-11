@@ -363,6 +363,10 @@ IF OBJECT_ID('dbo.SP_NOTIFY_BACK_IN_STOCK', 'P') IS NOT NULL
     DROP PROCEDURE dbo.SP_NOTIFY_BACK_IN_STOCK;
 GO
 
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'SP_GET_TOP_REVIEWS')
+    DROP PROCEDURE [dbo].[SP_GET_TOP_REVIEWS]
+GO
+
 CREATE OR ALTER PROCEDURE [dbo].[SP_USER_SOCIAL_LOGIN]
     @Email      NVARCHAR(255),
     @FirstName  NVARCHAR(100),
@@ -7781,13 +7785,16 @@ BEGIN
 		END
 		
 		-- Insert review
+
 		INSERT INTO ProductReviews (
 			ProductId, UserId, Rating, ReviewTitle, ReviewText,
+			ProductId, UserId, TenantId, Rating, ReviewTitle, ReviewText,
 			IsVerifiedPurchase, IsApproved, HelpfulCount, Active,
 			CreatedAt, UpdatedAt
 		)
 		VALUES (
 			@ProductId, @UserId, @Rating, @ReviewTitle, @ReviewText,
+			@ProductId, @UserId, @TenantId, @Rating, @ReviewTitle, @ReviewText,
 			@IsVerifiedPurchase, 1, 0, 1, -- Auto-approve reviews
 			GETUTCDATE(), GETUTCDATE()
 		);
@@ -8923,5 +8930,35 @@ BEGIN
         DECLARE @ErrState INT = ERROR_STATE();
         RAISERROR(@ErrMsg, @ErrSev, @ErrState);
     END CATCH
+END
+GO
+
+CREATE PROCEDURE [dbo].[SP_GET_TOP_REVIEWS]
+    @TenantId   BIGINT,
+    @MinRating  INT  = 4,
+    @Limit      INT  = 20
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT TOP (@Limit)
+        pr.ReviewId,
+        pr.ProductId,
+        pr.UserId,
+        ISNULL(u.FirstName + ' ' + u.LastName, 'Customer')  AS UserName,
+        ISNULL(u.Email, '')             AS UserEmail,
+        pr.Rating,
+        ISNULL(pr.ReviewTitle, '')      AS Title,
+        ISNULL(pr.ReviewText, '')       AS Comment,
+        pr.IsVerifiedPurchase           AS Verified,
+        ISNULL(pr.HelpfulCount, 0)      AS Helpful,
+        pr.CreatedAt,
+        pr.UpdatedAt
+    FROM [dbo].[ProductReviews] pr
+    LEFT JOIN [dbo].[Users] u ON u.UserId = pr.UserId
+    WHERE pr.TenantId = @TenantId
+      AND pr.Rating  >= @MinRating
+      AND pr.Active   = 1
+    ORDER BY pr.Rating DESC, pr.CreatedAt DESC;
 END
 GO

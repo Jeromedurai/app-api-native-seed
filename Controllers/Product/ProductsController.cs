@@ -31,6 +31,8 @@ namespace Tenant.Query.Controllers.Product
     {
         #region Initialize the value
         Service.Product.ProductService productService;
+
+        private readonly ProductReviewService _reviewService;
         private const int MaxFileSize = 10 * 1024 * 1024; // 10MB
         #endregion
 
@@ -42,9 +44,10 @@ namespace Tenant.Query.Controllers.Product
         /// <param name="loggerFactory"></param>
         private readonly IWebHostEnvironment _environment;
 
-        public ProductsController(ProductService service, IConfiguration configuration, ILoggerFactory loggerFactory, IWebHostEnvironment environment) : base(service, configuration, loggerFactory)
+            public ProductsController(ProductService service, ProductReviewService reviewService, IConfiguration configuration, ILoggerFactory loggerFactory, IWebHostEnvironment environment) : base(service, configuration, loggerFactory)
         {
             this.productService = service;
+            this._reviewService = reviewService;
             this._environment = environment;
         }
 
@@ -485,6 +488,7 @@ namespace Tenant.Query.Controllers.Product
         /// First checks httpOnly cookies - if they exist, returns them without DB call
         /// If cookies don't exist, fetches from DB and sets httpOnly cookies
         /// </summary>
+        [AllowAnonymous]
         [HttpGet]
         [Route("settings")]
         public IActionResult GetAppSettings([FromQuery] long? tenantId = null, [FromQuery] long? userId = null)
@@ -3337,6 +3341,25 @@ namespace Tenant.Query.Controllers.Product
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
             }
         }
+
+        public const string SP_GET_TOP_REVIEWS = "[dbo].[SP_GET_TOP_REVIEWS]";
+
+        [HttpGet]
+        [AllowAnonymous]
+        [Route("tenants/{tenantId:long}/top-reviews")]
+        public async Task<IActionResult> GetTopReviews([FromRoute] long tenantId, [FromQuery] int minRating = 4, [FromQuery] int limit = 20)
+        {
+            try
+            {
+                var reviews = await _reviewService.GetTopReviews(tenantId, minRating, limit);
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = reviews });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+        
         [HttpPost("notify-stock")]
         [AllowAnonymous]
         public async Task<IActionResult> NotifyBackInStock([FromBody] Model.Product.StockNotificationRequest request)
