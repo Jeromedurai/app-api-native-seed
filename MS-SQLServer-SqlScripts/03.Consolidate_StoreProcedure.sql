@@ -2029,23 +2029,23 @@ BEGIN
 		END
 
 		SELECT
-			pci.ConvertedImageId,
-			pci.ProductId,
-			pci.ImageName,
-			pci.ContentType,
-			pci.FileSize,
-			pci.OriginalData,
-			pci.LargeData,
-			pci.ThumbnailData,
-			pci.Main,
-			pci.Active,
-			pci.OrderBy,
-			pci.CreatedAt,
-			pci.Modified,
-			pci.CreatedBy
-		FROM ProductConvertedImages pci
-		WHERE pci.ConvertedImageId = @ConvertedImageId
-		AND pci.Active = 1;
+			pi.ImageId AS ConvertedImageId,
+			pi.ProductId,
+			pi.ImageName,
+			pi.ContentType,
+			pi.FileSize,
+			pi.ImageData AS OriginalData,
+			pi.LargeData,
+			pi.ThumbnailData,
+			pi.Main,
+			pi.Active,
+			pi.OrderBy,
+			pi.CreatedAt,
+			pi.Modified,
+			pi.CreatedBy
+		FROM ProductImages pi
+		WHERE pi.ImageId = @ConvertedImageId
+		AND pi.Active = 1;
 	END TRY
 	BEGIN CATCH
 		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
@@ -2087,19 +2087,19 @@ BEGIN
 
 		IF @Main = 1
 		BEGIN
-			UPDATE ProductConvertedImages
+			UPDATE ProductImages
 			SET Main = 0,
 				Modified = @CurrentTime
 			WHERE ProductId = @ProductId
 			  AND Active = 1;
 		END
 
-		INSERT INTO ProductConvertedImages (
+		INSERT INTO ProductImages (
 			ProductId,
 			ImageName,
 			ContentType,
 			FileSize,
-			OriginalData,
+			ImageData,
 			LargeData,
 			ThumbnailData,
 			Main,
@@ -2121,7 +2121,7 @@ BEGIN
 			1,
 			CASE
 				WHEN @OrderBy > 0 THEN @OrderBy
-				ELSE (SELECT ISNULL(MAX(OrderBy), 0) + 1 FROM ProductConvertedImages WHERE ProductId = @ProductId AND Active = 1)
+				ELSE (SELECT ISNULL(MAX(OrderBy), 0) + 1 FROM ProductImages WHERE ProductId = @ProductId AND Active = 1)
 			END,
 			@CurrentTime,
 			@CurrentTime,
@@ -2136,17 +2136,17 @@ BEGIN
 		WHERE ProductId = @ProductId;
 
 		SELECT
-			pci.ConvertedImageId,
-			pci.ProductId,
-			pci.ImageName,
-			pci.ContentType,
-			pci.FileSize,
-			pci.Main,
-			pci.Active,
-			pci.OrderBy,
-			pci.CreatedAt
-		FROM ProductConvertedImages pci
-		WHERE pci.ConvertedImageId = @NewConvertedImageId;
+			pi.ImageId AS ConvertedImageId,
+			pi.ProductId,
+			pi.ImageName,
+			pi.ContentType,
+			pi.FileSize,
+			pi.Main,
+			pi.Active,
+			pi.OrderBy,
+			pi.CreatedAt
+		FROM ProductImages pi
+		WHERE pi.ImageId = @NewConvertedImageId;
 
 		COMMIT TRANSACTION;
 	END TRY

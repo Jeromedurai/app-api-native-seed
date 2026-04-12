@@ -70,5 +70,10 @@ namespace Tenant.Query.Model.Product
         /// Sort direction (asc, desc)
         /// </summary>
         public string SortOrder { get; set; } = "desc";
+
+        /// <summary>
+        /// Filter by active status
+        /// </summary>
+        public bool? Active { get; set; }
     }
 }

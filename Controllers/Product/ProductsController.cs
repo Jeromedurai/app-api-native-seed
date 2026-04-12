@@ -381,7 +381,7 @@ namespace Tenant.Query.Controllers.Product
         /// <summary>
         /// Get image by id
         /// </summary>
-        /// <param name="id"></param>
+        /// <param name="id"></param>+
         /// <returns></returns>
         [AllowAnonymous]
         [HttpGet("{id:long}/image")]
@@ -488,8 +488,8 @@ namespace Tenant.Query.Controllers.Product
         /// First checks httpOnly cookies - if they exist, returns them without DB call
         /// If cookies don't exist, fetches from DB and sets httpOnly cookies
         /// </summary>
-        [AllowAnonymous]
         [HttpGet]
+        [AllowAnonymous]
         [Route("settings")]
         public IActionResult GetAppSettings([FromQuery] long? tenantId = null, [FromQuery] long? userId = null)
         {
@@ -687,12 +687,13 @@ namespace Tenant.Query.Controllers.Product
                     SortBy = "created",
                     SortOrder = "desc",
                     Search = "",
+                    Active = true,
                     MinPrice = null,
                     MaxPrice = null
                 };
                 var newProductsResult = await this.Service.SearchProductsAsync(tenantId.ToString(), newProductsPayload);
 
-                // Get Sale Products (products with offers)
+                // Get Sale Products (products with offers) — fall back to lowest-priced active products
                 var saleProductsPayload = new ProductSearchPayload
                 {
                     Page = 1,
@@ -700,13 +701,22 @@ namespace Tenant.Query.Controllers.Product
                     SortBy = "price",
                     SortOrder = "asc",
                     Search = "",
+                    Active = true,
                     HasOffer = true,
                     MinPrice = null,
                     MaxPrice = null
                 };
                 var saleProductsResult = await this.Service.SearchProductsAsync(tenantId.ToString(), saleProductsPayload);
+                if (saleProductsResult?.Products == null || saleProductsResult.Products.Count == 0)
+                {
+                    saleProductsResult = await this.Service.SearchProductsAsync(tenantId.ToString(), new ProductSearchPayload
+                    {
+                        Page = 1, Limit = limit, SortBy = "price", SortOrder = "asc",
+                        Search = "", Active = true, MinPrice = null, MaxPrice = null
+                    });
+                }
 
-                // Get Recommended Products (best sellers / highly rated)
+                // Get Recommended Products (best sellers) — fall back to highest-rated active products
                 var recommendedProductsPayload = new ProductSearchPayload
                 {
                     Page = 1,
@@ -714,11 +724,20 @@ namespace Tenant.Query.Controllers.Product
                     SortBy = "rating",
                     SortOrder = "desc",
                     Search = "",
+                    Active = true,
                     BestSeller = true,
                     MinPrice = null,
                     MaxPrice = null
                 };
                 var recommendedProductsResult = await this.Service.SearchProductsAsync(tenantId.ToString(), recommendedProductsPayload);
+                if (recommendedProductsResult?.Products == null || recommendedProductsResult.Products.Count == 0)
+                {
+                    recommendedProductsResult = await this.Service.SearchProductsAsync(tenantId.ToString(), new ProductSearchPayload
+                    {
+                        Page = 1, Limit = limit, SortBy = "rating", SortOrder = "desc",
+                        Search = "", Active = true, MinPrice = null, MaxPrice = null
+                    });
+                }
 
                 // Helper function to process images using Url.ActionLink for proper URL generation
                 void ProcessProductImages(ProductSearchResponse result)

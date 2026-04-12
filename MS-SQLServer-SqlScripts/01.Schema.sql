@@ -220,6 +220,7 @@ CREATE TABLE ProductImages (
 	ContentType NVARCHAR(100) NOT NULL,
 	FileSize BIGINT NOT NULL,
 	ImageData VARBINARY(MAX) NULL,
+	LargeData VARBINARY(MAX) NULL,
 	ThumbnailData VARBINARY(MAX) NULL,
 	Poster NVARCHAR(500) NULL, -- URL/Path
 	Main BIT DEFAULT 0 NOT NULL,
@@ -960,3 +961,11 @@ END;
 -- 	CreatedAt DATETIME2(7) DEFAULT GETUTCDATE() NOT NULL,
 -- 	CONSTRAINT PK_UserBehaviorAnalytics PRIMARY KEY CLUSTERED (BehaviorId)
 -- );
+
+-- Migration: Add LargeData column to ProductImages (run once on existing databases)
+IF NOT EXISTS (
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID('ProductImages') AND name = 'LargeData'
+)
+    ALTER TABLE ProductImages ADD LargeData VARBINARY(MAX) NULL;
+GO

@@ -488,7 +488,7 @@ namespace Tenant.Query.Repository.Product
                 productIdList.Columns.Add("VALUE", typeof(Int64));
 
                 DataRow dr;
-                payload.ProductId.ForEach(x =>
+                (payload.ProductId ?? new List<long>()).ForEach(x =>
                 {
                     dr = productIdList.NewRow();
                     dr["VALUE"] = x;
