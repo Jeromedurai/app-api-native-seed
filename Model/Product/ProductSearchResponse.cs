@@ -75,6 +75,7 @@ namespace Tenant.Query.Model.Product
         /// </summary>
         public string ThumbnailUrl { get; set; } = string.Empty;
         
+        public long? ConvertedImageId { get; set; }
         public bool Main { get; set; }
         public bool Active { get; set; }
         public int OrderBy { get; set; }

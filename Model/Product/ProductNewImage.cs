@@ -35,5 +35,6 @@ namespace Tenant.Query.Model.Product
         public DateTime CreatedAt { get; set; }
         public string ImageUrl { get; set; }
         public string ThumbnailUrl { get; set; }
+        public long? ConvertedImageId { get; set; }
     }
 }
