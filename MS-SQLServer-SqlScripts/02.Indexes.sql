@@ -1,505 +1,547 @@
 USE [himalaya_db]
 GO
 
--- ====================================== 
+-- ============================================================
 -- CONSOLIDATED DATABASE INDEXES
--- ====================================== 
--- This file contains all performance-optimized indexes for mandatory tables.
--- Indexes are organized by table and optimized based on actual query patterns.
--- 
--- Index Strategy:
--- 1. Primary Lookup Indexes - Single-column indexes on foreign keys and unique lookups
--- 2. Composite Indexes - Multi-column indexes for common filter combinations
--- 3. Filtered Indexes - Partial indexes using WHERE clauses for Active=1, IS NOT NULL
--- 4. Covering Indexes - INCLUDE columns for frequently selected data
--- 5. Sort-Optimized Indexes - DESC indexes for date-based sorting
+-- ============================================================
+-- All performance-optimized indexes for the himalaya_db schema.
+-- Organized by table, matched to actual query patterns.
 --
--- Note: This file consolidates and replaces scattered index definitions.
--- Run this script after creating tables (01.Schema.sql) and before data insertion.
+-- Index strategy:
+--   1. Primary Lookup   — single-column FK / unique lookups
+--   2. Composite        — multi-column filters
+--   3. Filtered         — WHERE Active = 1 / IS NOT NULL
+--   4. Covering         — INCLUDE columns for selected data
+--   5. Sort-Optimized   — DESC keys for date-based ordering
 --
--- IMPORTANT: Duplicate and redundant indexes have been removed. Only indexes that
--- significantly improve query performance are included.
--- ====================================== 
+-- Run AFTER 01.Schema.sql and BEFORE any data insertion.
+-- Duplicate / redundant indexes have been removed.
+-- ============================================================
 
--- ====================================== 
--- USERS TABLE INDEXES
--- ====================================== 
--- Purpose: Authentication, user lookups, admin queries
 
--- Login lookup indexes (unique for authentication)
-CREATE UNIQUE NONCLUSTERED INDEX IX_Users_Email 
-ON Users (Email) 
-WHERE Active = 1 AND Email IS NOT NULL;
+-- ============================================================
+-- USERS
+-- ============================================================
+-- Purpose: authentication, user lookups, admin queries
 
-CREATE UNIQUE NONCLUSTERED INDEX IX_Users_Phone 
-ON Users (Phone) 
-WHERE Active = 1 AND Phone IS NOT NULL;
+-- Unique login lookups
+CREATE UNIQUE NONCLUSTERED INDEX IX_Users_Email
+    ON Users (Email)
+    WHERE Active = 1 AND Email IS NOT NULL;
 
--- Tenant and active status queries (most common filter combination)
-CREATE NONCLUSTERED INDEX IX_Users_TenantId_Active 
-ON Users (TenantId, Active, UserId) 
-WHERE TenantId IS NOT NULL;
+CREATE UNIQUE NONCLUSTERED INDEX IX_Users_Phone
+    ON Users (Phone)
+    WHERE Active = 1 AND Phone IS NOT NULL;
 
--- Recent activity and login tracking
-CREATE NONCLUSTERED INDEX IX_Users_LastLogin 
-ON Users (LastLogin DESC) 
-WHERE Active = 1 AND LastLogin IS NOT NULL;
+-- Tenant + active (most common filter combination)
+CREATE NONCLUSTERED INDEX IX_Users_TenantId_Active
+    ON Users (TenantId, Active, UserId)
+    WHERE TenantId IS NOT NULL;
 
--- Registration tracking and admin queries
-CREATE NONCLUSTERED INDEX IX_Users_CreatedAt 
-ON Users (CreatedAt DESC);
+-- Recent login tracking
+CREATE NONCLUSTERED INDEX IX_Users_LastLogin
+    ON Users (LastLogin DESC)
+    WHERE Active = 1 AND LastLogin IS NOT NULL;
 
--- Security and account lockout queries
-CREATE NONCLUSTERED INDEX IX_Users_AccountLocked 
-ON Users (AccountLocked, LoginAttempts, LastLoginAttempt) 
-WHERE Active = 1;
+-- Registration / admin queries
+CREATE NONCLUSTERED INDEX IX_Users_CreatedAt
+    ON Users (CreatedAt DESC);
 
--- ====================================== 
--- ROLES TABLE INDEXES
--- ====================================== 
--- Purpose: Role management and lookups
+-- Account lockout queries
+CREATE NONCLUSTERED INDEX IX_Users_AccountLocked
+    ON Users (AccountLocked, LoginAttempts, LastLoginAttempt)
+    WHERE Active = 1;
 
-CREATE NONCLUSTERED INDEX IX_Roles_Active 
-ON Roles (Active, RoleLevel, RoleId);
+-- "Remember Me" auto-login token — OPTIMIZED: was a full table scan
+CREATE NONCLUSTERED INDEX IX_Users_RememberMeToken
+    ON Users (RememberMeToken)
+    WHERE Active = 1 AND RememberMeToken IS NOT NULL;
 
--- ====================================== 
--- USER ROLES JUNCTION TABLE INDEXES
--- ====================================== 
--- Purpose: User-role relationship queries
 
-CREATE NONCLUSTERED INDEX IX_UserRoles_UserId 
-ON UserRoles (UserId, Active);
+-- ============================================================
+-- ROLES
+-- ============================================================
+-- Purpose: role management and lookups
 
-CREATE NONCLUSTERED INDEX IX_UserRoles_RoleId 
-ON UserRoles (RoleId, Active);
+CREATE NONCLUSTERED INDEX IX_Roles_Active
+    ON Roles (Active, RoleLevel, RoleId);
 
-CREATE NONCLUSTERED INDEX IX_UserRoles_UserRole 
-ON UserRoles (UserId, RoleId, Active);
 
--- ====================================== 
--- PRODUCTS TABLE INDEXES
--- ====================================== 
--- Purpose: Product catalog, search, filtering, sorting
+-- ============================================================
+-- USER ROLES  (junction)
+-- ============================================================
+-- Purpose: user–role relationship queries
 
--- Base product queries (most common - TenantId + Active)
-CREATE NONCLUSTERED INDEX IX_Products_TenantId_Active 
-ON Products (TenantId, Active, ProductId) 
-WHERE TenantId IS NOT NULL;
+CREATE NONCLUSTERED INDEX IX_UserRoles_UserId
+    ON UserRoles (UserId, Active);
+
+CREATE NONCLUSTERED INDEX IX_UserRoles_RoleId
+    ON UserRoles (RoleId, Active);
+
+CREATE NONCLUSTERED INDEX IX_UserRoles_UserRole
+    ON UserRoles (UserId, RoleId, Active);
+
+
+-- ============================================================
+-- PRODUCTS
+-- ============================================================
+-- Purpose: catalogue browsing, search, filtering, sorting
+
+-- Base product queries (TenantId + Active — most common)
+CREATE NONCLUSTERED INDEX IX_Products_TenantId_Active
+    ON Products (TenantId, Active, ProductId)
+    WHERE TenantId IS NOT NULL;
 
 -- Product code lookup (unique per tenant)
-CREATE NONCLUSTERED INDEX IX_Products_ProductCode 
-ON Products (ProductCode, TenantId) 
-WHERE Active = 1 AND ProductCode IS NOT NULL;
+CREATE NONCLUSTERED INDEX IX_Products_ProductCode
+    ON Products (ProductCode, TenantId)
+    WHERE Active = 1 AND ProductCode IS NOT NULL;
 
--- Category filtering (common filter)
-CREATE NONCLUSTERED INDEX IX_Products_Category_Active 
-ON Products (Category, Active, Price, Rating DESC) 
-WHERE Category IS NOT NULL;
+-- Category filtering
+CREATE NONCLUSTERED INDEX IX_Products_Category_Active
+    ON Products (Category, Active, Price, Rating DESC)
+    WHERE Category IS NOT NULL;
 
--- SKU lookup (filtered for active products with SKU)
-CREATE NONCLUSTERED INDEX IX_Products_SKU 
-ON Products (SKU) 
-WHERE Active = 1 AND SKU IS NOT NULL;
+-- SKU lookup
+CREATE NONCLUSTERED INDEX IX_Products_SKU
+    ON Products (SKU)
+    WHERE Active = 1 AND SKU IS NOT NULL;
 
--- Text search covering index (includes frequently selected columns)
-CREATE NONCLUSTERED INDEX IX_Products_Search 
-ON Products (TenantId, Active) 
-INCLUDE (ProductId, ProductName, ProductDescription, ProductCode, Price, Rating, Category);
+-- Full-text search covering index
+-- OPTIMIZED: InStock in key + WHERE Active=1 — tight seek on in-stock listings
+CREATE NONCLUSTERED INDEX IX_Products_Search
+    ON Products (TenantId, Active, InStock)
+    INCLUDE (ProductId, ProductName, ProductDescription, ProductCode,
+             Price, Rating, Category, BestSeller, Quantity)
+    WHERE Active = 1;
 
--- Price sorting and filtering (consolidated - covers both Price and PriceRange queries)
-CREATE NONCLUSTERED INDEX IX_Products_Price 
-ON Products (TenantId, Active, Price ASC) 
-INCLUDE (ProductId, ProductName, Category, Rating, BestSeller);
+-- Price sorting / range filtering
+CREATE NONCLUSTERED INDEX IX_Products_Price
+    ON Products (TenantId, Active, Price ASC)
+    INCLUDE (ProductId, ProductName, Category, Rating, BestSeller);
 
 -- Rating sorting
-CREATE NONCLUSTERED INDEX IX_Products_Rating 
-ON Products (TenantId, Active, Rating DESC) 
-WHERE Rating > 0;
+CREATE NONCLUSTERED INDEX IX_Products_Rating
+    ON Products (TenantId, Active, Rating DESC)
+    WHERE Rating > 0;
 
--- Stock/inventory queries
-CREATE NONCLUSTERED INDEX IX_Products_Stock 
-ON Products (TenantId, Active, Quantity DESC);
+-- Stock / inventory queries
+CREATE NONCLUSTERED INDEX IX_Products_Stock
+    ON Products (TenantId, Active, Quantity DESC);
 
--- Best seller queries
-CREATE NONCLUSTERED INDEX IX_Products_BestSeller 
-ON Products (TenantId, Active, BestSeller DESC, UserBuyCount DESC) 
-WHERE BestSeller = 1;
+-- Best-seller queries
+CREATE NONCLUSTERED INDEX IX_Products_BestSeller
+    ON Products (TenantId, Active, BestSeller DESC, UserBuyCount DESC)
+    WHERE BestSeller = 1;
 
--- Trending products (includes Created for new arrivals)
-CREATE NONCLUSTERED INDEX IX_Products_Trending 
-ON Products (TenantId, Active, Trending DESC, Created DESC);
+-- Trending / new arrivals
+CREATE NONCLUSTERED INDEX IX_Products_Trending
+    ON Products (TenantId, Active, Trending DESC, Created DESC);
 
--- User buy count (popularity sorting)
-CREATE NONCLUSTERED INDEX IX_Products_UserBuyCount 
-ON Products (TenantId, Active, UserBuyCount DESC);
+-- Popularity sorting
+CREATE NONCLUSTERED INDEX IX_Products_UserBuyCount
+    ON Products (TenantId, Active, UserBuyCount DESC);
 
--- Order by and name sorting
-CREATE NONCLUSTERED INDEX IX_Products_OrderBy 
-ON Products (TenantId, Active, OrderBy ASC, ProductName ASC);
+-- Name / display-order sorting
+CREATE NONCLUSTERED INDEX IX_Products_OrderBy
+    ON Products (TenantId, Active, OrderBy ASC, ProductName ASC);
 
--- Composite search filter index (covers multiple filter combinations)
-CREATE NONCLUSTERED INDEX IX_Products_SearchFilter 
-ON Products (TenantId, Active, Category, BestSeller, Rating DESC) 
-INCLUDE (ProductId, ProductName, Price, Quantity, UserBuyCount, Offer);
+-- Composite search-filter covering index
+CREATE NONCLUSTERED INDEX IX_Products_SearchFilter
+    ON Products (TenantId, Active, Category, BestSeller, Rating DESC)
+    INCLUDE (ProductId, ProductName, Price, Quantity, UserBuyCount, Offer);
 
--- ====================================== 
--- PRODUCT IMAGES TABLE INDEXES
--- ====================================== 
--- Purpose: Product image lookups and ordering
 
-CREATE NONCLUSTERED INDEX IX_ProductImages_ProductId 
-ON ProductImages (ProductId, Active, OrderBy ASC);
+-- ============================================================
+-- PRODUCT IMAGES
+-- ============================================================
+-- Purpose: image lookups and ordering
 
--- Main image lookup (filtered for active products)
-CREATE NONCLUSTERED INDEX IX_ProductImages_Main 
-ON ProductImages (ProductId, Main DESC, Active) 
-WHERE Active = 1 AND Main = 1;
+CREATE NONCLUSTERED INDEX IX_ProductImages_ProductId
+    ON ProductImages (ProductId, Active, OrderBy ASC);
 
--- ====================================== 
--- PRODUCT REVIEWS TABLE INDEXES
--- ====================================== 
--- Purpose: Review queries, rating calculations
+-- Main image lookup
+CREATE NONCLUSTERED INDEX IX_ProductImages_Main
+    ON ProductImages (ProductId, Main DESC, Active)
+    WHERE Active = 1 AND Main = 1;
 
--- Product reviews (consolidated - covers both ProductId and Approved queries)
-CREATE NONCLUSTERED INDEX IX_ProductReviews_ProductId 
-ON ProductReviews (ProductId, IsApproved, Active, Rating DESC, CreatedAt DESC);
 
-CREATE NONCLUSTERED INDEX IX_ProductReviews_UserId 
-ON ProductReviews (UserId, Active, CreatedAt DESC);
+-- ============================================================
+-- PRODUCT REVIEWS
+-- ============================================================
+-- Purpose: review display, rating calculations
 
--- User-product review lookup (prevent duplicate reviews)
-CREATE NONCLUSTERED INDEX IX_ProductReviews_UserProduct 
-ON ProductReviews (UserId, ProductId, Active);
+-- All reviews for a product (approved, ordered by rating/date)
+CREATE NONCLUSTERED INDEX IX_ProductReviews_ProductId
+    ON ProductReviews (ProductId, IsApproved, Active, Rating DESC, CreatedAt DESC);
 
--- ====================================== 
--- PRODUCT WISHLIST TABLE INDEXES
--- ====================================== 
--- Purpose: Wishlist queries
+-- Reviews by user
+CREATE NONCLUSTERED INDEX IX_ProductReviews_UserId
+    ON ProductReviews (UserId, Active, CreatedAt DESC);
 
-CREATE NONCLUSTERED INDEX IX_ProductWishList_UserId 
-ON ProductWishList (UserId, Active, CreatedAt DESC);
+-- Prevent duplicate reviews (user + product)
+CREATE NONCLUSTERED INDEX IX_ProductReviews_UserProduct
+    ON ProductReviews (UserId, ProductId, Active);
 
-CREATE NONCLUSTERED INDEX IX_ProductWishList_ProductId 
-ON ProductWishList (ProductId, Active);
 
--- ====================================== 
--- CATEGORIES TABLE INDEXES
--- ====================================== 
--- Purpose: Category navigation and hierarchy
+-- ============================================================
+-- PRODUCT WISHLIST
+-- ============================================================
+-- Purpose: wishlist queries
 
-CREATE NONCLUSTERED INDEX IX_Categories_TenantId_Active 
-ON Categories (TenantId, Active, OrderBy ASC) 
-WHERE TenantId IS NOT NULL;
+CREATE NONCLUSTERED INDEX IX_ProductWishList_UserId
+    ON ProductWishList (UserId, Active, CreatedAt DESC);
 
-CREATE NONCLUSTERED INDEX IX_Categories_ParentId_Active 
-ON Categories (ParentCategoryId, Active, OrderBy ASC) 
-WHERE ParentCategoryId IS NOT NULL;
+CREATE NONCLUSTERED INDEX IX_ProductWishList_ProductId
+    ON ProductWishList (ProductId, Active);
 
-CREATE NONCLUSTERED INDEX IX_Categories_MenuId_Active 
-ON Categories (MenuId, Active, OrderBy ASC) 
-WHERE MenuId IS NOT NULL;
 
--- ====================================== 
--- MENU MASTER TABLE INDEXES
--- ====================================== 
--- Purpose: Menu structure and ordering
+-- ============================================================
+-- CATEGORIES
+-- ============================================================
+-- Purpose: category navigation and hierarchy
 
-CREATE NONCLUSTERED INDEX IX_MenuMaster_TenantId 
-ON MenuMaster (TenantId, Active, OrderBy ASC) 
-WHERE TenantId IS NOT NULL;
+CREATE NONCLUSTERED INDEX IX_Categories_TenantId_Active
+    ON Categories (TenantId, Active, OrderBy ASC)
+    WHERE TenantId IS NOT NULL;
 
--- ====================================== 
--- CART ITEMS TABLE INDEXES
--- ====================================== 
--- Purpose: Shopping cart operations
+CREATE NONCLUSTERED INDEX IX_Categories_ParentId_Active
+    ON Categories (ParentCategoryId, Active, OrderBy ASC)
+    WHERE ParentCategoryId IS NOT NULL;
 
--- User cart (consolidated - covers UserId and UserTenant queries)
-CREATE NONCLUSTERED INDEX IX_CartItems_UserId_Active 
-ON CartItems (UserId, TenantId, Active, AddedDate DESC) 
-INCLUDE (ProductId, Quantity);
+CREATE NONCLUSTERED INDEX IX_Categories_MenuId_Active
+    ON Categories (MenuId, Active, OrderBy ASC)
+    WHERE MenuId IS NOT NULL;
 
-CREATE NONCLUSTERED INDEX IX_CartItems_ProductId 
-ON CartItems (ProductId, Active);
+
+-- ============================================================
+-- MENU MASTER
+-- ============================================================
+-- Purpose: navigation menu structure and ordering
+
+CREATE NONCLUSTERED INDEX IX_MenuMaster_TenantId
+    ON MenuMaster (TenantId, Active, OrderBy ASC)
+    WHERE TenantId IS NOT NULL;
+
+
+-- ============================================================
+-- CART ITEMS
+-- ============================================================
+-- Purpose: shopping cart read / write operations
+
+-- User cart fetch (covers UserId + TenantId filter)
+CREATE NONCLUSTERED INDEX IX_CartItems_UserId_Active
+    ON CartItems (UserId, TenantId, Active, AddedDate DESC)
+    INCLUDE (ProductId, Quantity);
+
+-- Cart-to-product JOIN — OPTIMIZED: covers join, eliminates key lookups
+CREATE NONCLUSTERED INDEX IX_CartItems_ProductId
+    ON CartItems (ProductId, Active)
+    INCLUDE (UserId, Quantity, TenantId);
 
 -- Guest cart (session-based)
-CREATE NONCLUSTERED INDEX IX_CartItems_SessionId 
-ON CartItems (SessionId, Active) 
-WHERE SessionId IS NOT NULL;
+CREATE NONCLUSTERED INDEX IX_CartItems_SessionId
+    ON CartItems (SessionId, Active)
+    WHERE SessionId IS NOT NULL;
 
--- User-product lookup (prevent duplicates, optimize cart updates)
-CREATE NONCLUSTERED INDEX IX_CartItems_UserProduct 
-ON CartItems (UserId, ProductId, Active);
+-- Prevent duplicate cart entries, optimise quantity updates
+CREATE NONCLUSTERED INDEX IX_CartItems_UserProduct
+    ON CartItems (UserId, ProductId, Active);
 
--- Cart expiration cleanup
-CREATE NONCLUSTERED INDEX IX_CartItems_Expiration 
-ON CartItems (ExpiresAt ASC) 
-WHERE ExpiresAt IS NOT NULL AND Active = 1;
+-- Expired cart cleanup job
+CREATE NONCLUSTERED INDEX IX_CartItems_Expiration
+    ON CartItems (ExpiresAt ASC)
+    WHERE ExpiresAt IS NOT NULL AND Active = 1;
 
--- ====================================== 
--- ORDERS TABLE INDEXES
--- ====================================== 
--- Purpose: Order queries, reporting, status tracking
 
--- User orders (most common query pattern)
-CREATE NONCLUSTERED INDEX IX_Orders_UserId_Active 
-ON Orders (UserId, Active, CreatedAt DESC);
+-- ============================================================
+-- ORDERS
+-- ============================================================
+-- Purpose: order queries, reporting, status tracking
 
--- Tenant orders
-CREATE NONCLUSTERED INDEX IX_Orders_TenantId_Active 
-ON Orders (TenantId, Active, CreatedAt DESC);
+-- "My Orders" page — user order history
+CREATE NONCLUSTERED INDEX IX_Orders_UserId_Active
+    ON Orders (UserId, Active, CreatedAt DESC);
+
+-- Admin order list — OPTIMIZED: covers full list row, eliminates key lookups
+CREATE NONCLUSTERED INDEX IX_Orders_TenantId_Active
+    ON Orders (TenantId, Active, CreatedAt DESC)
+    INCLUDE (OrderId, OrderNumber, UserId, TotalAmount,
+             OrderStatus, PaymentStatus, ShippingAmount);
 
 -- Order number lookup (unique)
-CREATE UNIQUE NONCLUSTERED INDEX IX_Orders_OrderNumber 
-ON Orders (OrderNumber) 
-WHERE Active = 1;
+CREATE UNIQUE NONCLUSTERED INDEX IX_Orders_OrderNumber
+    ON Orders (OrderNumber)
+    WHERE Active = 1;
 
--- Combined status queries (consolidates OrderStatus, PaymentStatus, and StatusPayment)
-CREATE NONCLUSTERED INDEX IX_Orders_StatusPayment 
-ON Orders (OrderStatus, PaymentStatus, Active, CreatedAt DESC);
+-- Status + payment combined filter
+CREATE NONCLUSTERED INDEX IX_Orders_StatusPayment
+    ON Orders (OrderStatus, PaymentStatus, Active, CreatedAt DESC);
 
--- Date-based queries and reporting (consolidates CreatedAt and OrderDate)
-CREATE NONCLUSTERED INDEX IX_Orders_CreatedAt 
-ON Orders (CreatedAt DESC, Active) 
-INCLUDE (TotalAmount, OrderStatus, PaymentStatus, UserId, TenantId, OrderDate);
+-- Date-range reporting
+CREATE NONCLUSTERED INDEX IX_Orders_CreatedAt
+    ON Orders (CreatedAt DESC, Active)
+    INCLUDE (TotalAmount, OrderStatus, PaymentStatus, UserId, TenantId, OrderDate);
 
--- Session-based orders (guest checkout)
-CREATE NONCLUSTERED INDEX IX_Orders_SessionId 
-ON Orders (SessionId) 
-WHERE SessionId IS NOT NULL;
+-- Guest checkout (session-based)
+CREATE NONCLUSTERED INDEX IX_Orders_SessionId
+    ON Orders (SessionId)
+    WHERE SessionId IS NOT NULL;
 
--- Coupon usage tracking (consolidated)
--- CREATE NONCLUSTERED INDEX IX_Orders_Coupon 
--- ON Orders (CouponId, CouponCode) 
--- WHERE (CouponId IS NOT NULL OR CouponCode IS NOT NULL);
+-- Analytics / reporting composite
+CREATE NONCLUSTERED INDEX IX_Orders_Analytics
+    ON Orders (TenantId, OrderStatus, PaymentStatus, CreatedAt DESC)
+    INCLUDE (OrderId, OrderNumber, UserId, TotalAmount);
 
--- Analytics and reporting (composite covering index)
-CREATE NONCLUSTERED INDEX IX_Orders_Analytics 
-ON Orders (TenantId, OrderStatus, PaymentStatus, CreatedAt DESC) 
-INCLUDE (OrderId, OrderNumber, UserId, TotalAmount);
+-- User + status composite (order history filtering)
+CREATE NONCLUSTERED INDEX IX_Orders_UserStatus
+    ON Orders (UserId, OrderStatus, Active, CreatedAt DESC)
+    INCLUDE (OrderId, OrderNumber, TotalAmount, PaymentStatus);
 
--- User status queries (optimized composite)
-CREATE NONCLUSTERED INDEX IX_Orders_UserStatus 
-ON Orders (UserId, OrderStatus, Active, CreatedAt DESC) 
-INCLUDE (OrderId, OrderNumber, TotalAmount, PaymentStatus);
 
--- ====================================== 
--- ORDER ITEMS TABLE INDEXES
--- ====================================== 
--- Purpose: Order item lookups and product sales tracking
+-- ============================================================
+-- ORDER ITEMS
+-- ============================================================
+-- Purpose: order detail fetch, product sales tracking
 
-CREATE NONCLUSTERED INDEX IX_OrderItems_OrderId 
-ON OrderItems (OrderId, Active);
+-- Order detail page — OPTIMIZED: covers all line-item columns, eliminates N key lookups
+CREATE NONCLUSTERED INDEX IX_OrderItems_OrderId
+    ON OrderItems (OrderId, Active)
+    INCLUDE (ProductId, ProductName, ProductImage, ProductCode,
+             Price, Quantity, Total, DiscountAmount);
 
-CREATE NONCLUSTERED INDEX IX_OrderItems_ProductId 
-ON OrderItems (ProductId, Active, CreatedAt DESC);
+-- Sales / product reporting
+CREATE NONCLUSTERED INDEX IX_OrderItems_ProductId
+    ON OrderItems (ProductId, Active, CreatedAt DESC);
 
--- ====================================== 
--- ORDER STATUS HISTORY TABLE INDEXES
--- ====================================== 
--- Purpose: Order status tracking and audit
 
-CREATE NONCLUSTERED INDEX IX_OrderStatusHistory_OrderId 
-ON OrderStatusHistory (OrderId, ChangedAt DESC);
+-- ============================================================
+-- ORDER STATUS HISTORY
+-- ============================================================
+-- Purpose: order status timeline and audit trail
 
--- ====================================== 
--- ORDER TRACKING TABLE INDEXES
--- ====================================== 
--- Purpose: Shipping tracking queries
+-- OPTIMIZED: covers status timeline page, eliminates key lookups
+CREATE NONCLUSTERED INDEX IX_OrderStatusHistory_OrderId
+    ON OrderStatusHistory (OrderId, ChangedAt DESC)
+    INCLUDE (PreviousStatus, NewStatus, StatusNote);
 
-CREATE NONCLUSTERED INDEX IX_OrderTracking_OrderId 
-ON OrderTracking (OrderId, Active);
 
--- Tracking number lookup
-CREATE NONCLUSTERED INDEX IX_OrderTracking_TrackingNumber 
-ON OrderTracking (TrackingNumber) 
-WHERE TrackingNumber IS NOT NULL AND Active = 1;
+-- ============================================================
+-- ORDER TRACKING
+-- ============================================================
+-- Purpose: shipment tracking queries
 
--- ====================================== 
--- ORDER REFUNDS TABLE INDEXES
--- ====================================== 
--- Purpose: Refund queries and tracking
+CREATE NONCLUSTERED INDEX IX_OrderTracking_OrderId
+    ON OrderTracking (OrderId, Active);
 
-CREATE NONCLUSTERED INDEX IX_OrderRefunds_OrderId 
-ON OrderRefunds (OrderId, Active);
+-- Carrier tracking number lookup
+CREATE NONCLUSTERED INDEX IX_OrderTracking_TrackingNumber
+    ON OrderTracking (TrackingNumber)
+    WHERE TrackingNumber IS NOT NULL AND Active = 1;
 
-CREATE NONCLUSTERED INDEX IX_OrderRefunds_Status 
-ON OrderRefunds (RefundStatus, RequestedAt DESC) 
-WHERE Active = 1;
 
--- ====================================== 
--- USER ADDRESSES TABLE INDEXES
--- ====================================== 
--- Purpose: Address lookups and default address queries
+-- ============================================================
+-- ORDER REFUNDS
+-- ============================================================
+-- Purpose: refund queries and processing
 
-CREATE NONCLUSTERED INDEX IX_UserAddresses_UserId 
-ON UserAddresses (UserId, Active, IsDefault DESC);
+CREATE NONCLUSTERED INDEX IX_OrderRefunds_OrderId
+    ON OrderRefunds (OrderId, Active);
 
-CREATE NONCLUSTERED INDEX IX_UserAddresses_AddressType 
-ON UserAddresses (UserId, AddressType, Active);
+CREATE NONCLUSTERED INDEX IX_OrderRefunds_Status
+    ON OrderRefunds (RefundStatus, RequestedAt DESC)
+    WHERE Active = 1;
 
--- ====================================== 
--- USER ACTIVITY LOG TABLE INDEXES
--- ====================================== 
--- Purpose: Activity logging and audit queries
 
-CREATE NONCLUSTERED INDEX IX_UserActivityLog_UserId 
-ON UserActivityLog (UserId, CreatedAt DESC);
+-- ============================================================
+-- USER ADDRESSES
+-- ============================================================
+-- Purpose: checkout address dropdown, default address lookup
 
-CREATE NONCLUSTERED INDEX IX_UserActivityLog_ActivityType 
-ON UserActivityLog (ActivityType, CreatedAt DESC);
+-- OPTIMIZED: covers address dropdown, eliminates key lookups
+CREATE NONCLUSTERED INDEX IX_UserAddresses_UserId
+    ON UserAddresses (UserId, Active, IsDefault DESC)
+    INCLUDE (AddressType, Street, City, State, PostalCode, Country);
 
--- Resource-based queries
-CREATE NONCLUSTERED INDEX IX_UserActivityLog_ResourceType 
-ON UserActivityLog (ResourceType, ResourceId, CreatedAt DESC) 
-WHERE ResourceType IS NOT NULL;
+CREATE NONCLUSTERED INDEX IX_UserAddresses_AddressType
+    ON UserAddresses (UserId, AddressType, Active);
 
--- ====================================== 
--- RAZORPAY ORDERS TABLE INDEXES
--- ====================================== 
--- Purpose: Payment order lookups and tracking
 
-CREATE UNIQUE NONCLUSTERED INDEX IX_RazorpayOrders_RazorpayOrderId 
-ON RazorpayOrders (RazorpayOrderId) 
-WHERE Active = 1;
+-- ============================================================
+-- USER ACTIVITY LOG
+-- ============================================================
+-- Purpose: activity timeline and audit queries
 
-CREATE NONCLUSTERED INDEX IX_RazorpayOrders_UserId 
-ON RazorpayOrders (UserId) 
-WHERE UserId IS NOT NULL;
+-- OPTIMIZED: covers timeline page, eliminates key lookups
+CREATE NONCLUSTERED INDEX IX_UserActivityLog_UserId
+    ON UserActivityLog (UserId, CreatedAt DESC)
+    INCLUDE (ActivityType, ResourceType, ResourceId);
 
-CREATE NONCLUSTERED INDEX IX_RazorpayOrders_TenantId 
-ON RazorpayOrders (TenantId) 
-WHERE TenantId IS NOT NULL;
+-- Activity type filtering
+CREATE NONCLUSTERED INDEX IX_UserActivityLog_ActivityType
+    ON UserActivityLog (ActivityType, CreatedAt DESC);
 
-CREATE NONCLUSTERED INDEX IX_RazorpayOrders_OrderId 
-ON RazorpayOrders (OrderId) 
-WHERE OrderId IS NOT NULL;
+-- Resource-scoped queries (admin: "all actions on order #123")
+CREATE NONCLUSTERED INDEX IX_UserActivityLog_ResourceType
+    ON UserActivityLog (ResourceType, ResourceId, CreatedAt DESC)
+    WHERE ResourceType IS NOT NULL;
 
-CREATE NONCLUSTERED INDEX IX_RazorpayOrders_Status 
-ON RazorpayOrders (Status, CreatedAt DESC);
 
--- ====================================== 
--- RAZORPAY PAYMENTS TABLE INDEXES
--- ====================================== 
--- Purpose: Payment queries and verification
+-- ============================================================
+-- RAZORPAY ORDERS
+-- ============================================================
+-- Purpose: payment order lookups and status tracking
 
-CREATE UNIQUE NONCLUSTERED INDEX IX_RazorpayPayments_RazorpayPaymentId 
-ON RazorpayPayments (RazorpayPaymentId) 
-WHERE Active = 1;
+CREATE UNIQUE NONCLUSTERED INDEX IX_RazorpayOrders_RazorpayOrderId
+    ON RazorpayOrders (RazorpayOrderId)
+    WHERE Active = 1;
 
-CREATE NONCLUSTERED INDEX IX_RazorpayPayments_UserId 
-ON RazorpayPayments (UserId) 
-WHERE UserId IS NOT NULL;
+CREATE NONCLUSTERED INDEX IX_RazorpayOrders_UserId
+    ON RazorpayOrders (UserId)
+    WHERE UserId IS NOT NULL;
 
-CREATE NONCLUSTERED INDEX IX_RazorpayPayments_TenantId 
-ON RazorpayPayments (TenantId) 
-WHERE TenantId IS NOT NULL;
+CREATE NONCLUSTERED INDEX IX_RazorpayOrders_TenantId
+    ON RazorpayOrders (TenantId)
+    WHERE TenantId IS NOT NULL;
 
-CREATE NONCLUSTERED INDEX IX_RazorpayPayments_OrderId 
-ON RazorpayPayments (OrderId) 
-WHERE OrderId IS NOT NULL;
+CREATE NONCLUSTERED INDEX IX_RazorpayOrders_OrderId
+    ON RazorpayOrders (OrderId)
+    WHERE OrderId IS NOT NULL;
 
-CREATE NONCLUSTERED INDEX IX_RazorpayPayments_RazorpayOrderId 
-ON RazorpayPayments (RazorpayOrderId);
+CREATE NONCLUSTERED INDEX IX_RazorpayOrders_Status
+    ON RazorpayOrders (Status, CreatedAt DESC);
 
-CREATE NONCLUSTERED INDEX IX_RazorpayPayments_Status 
-ON RazorpayPayments (Status, CreatedAt DESC);
 
--- ====================================== 
--- COUPONS TABLE INDEXES
--- ====================================== 
--- Purpose: Coupon validation and lookups
+-- ============================================================
+-- RAZORPAY PAYMENTS
+-- ============================================================
+-- Purpose: payment verification and lookup
 
-CREATE UNIQUE NONCLUSTERED INDEX IX_Coupons_Code_TenantId 
-ON Coupons (Code, TenantId);
+CREATE UNIQUE NONCLUSTERED INDEX IX_RazorpayPayments_RazorpayPaymentId
+    ON RazorpayPayments (RazorpayPaymentId)
+    WHERE Active = 1;
 
-CREATE NONCLUSTERED INDEX IX_Coupons_TenantId 
-ON Coupons (TenantId, Active, StartDate, EndDate);
+CREATE NONCLUSTERED INDEX IX_RazorpayPayments_UserId
+    ON RazorpayPayments (UserId)
+    WHERE UserId IS NOT NULL;
 
--- ====================================== 
--- COUPON USAGE TABLE INDEXES
--- ====================================== 
--- Purpose: Usage tracking and validation
+CREATE NONCLUSTERED INDEX IX_RazorpayPayments_TenantId
+    ON RazorpayPayments (TenantId)
+    WHERE TenantId IS NOT NULL;
 
-CREATE NONCLUSTERED INDEX IX_CouponUsage_CouponId 
-ON CouponUsage (CouponId, UsedAt DESC);
+CREATE NONCLUSTERED INDEX IX_RazorpayPayments_OrderId
+    ON RazorpayPayments (OrderId)
+    WHERE OrderId IS NOT NULL;
 
-CREATE NONCLUSTERED INDEX IX_CouponUsage_UserId 
-ON CouponUsage (UserId, UsedAt DESC) 
-WHERE UserId IS NOT NULL;
+CREATE NONCLUSTERED INDEX IX_RazorpayPayments_RazorpayOrderId
+    ON RazorpayPayments (RazorpayOrderId);
 
-CREATE NONCLUSTERED INDEX IX_CouponUsage_OrderId 
-ON CouponUsage (OrderId);
+CREATE NONCLUSTERED INDEX IX_RazorpayPayments_Status
+    ON RazorpayPayments (Status, CreatedAt DESC);
 
-CREATE UNIQUE NONCLUSTERED INDEX IX_CouponUsage_CouponId_OrderId 
-ON CouponUsage (CouponId, OrderId);
 
--- ====================================== 
--- SHIPPING RATES TABLE INDEXES
--- ====================================== 
--- Purpose: Shipping rate lookups
+-- ============================================================
+-- COUPONS
+-- ============================================================
+-- Purpose: coupon validation and admin lookups
 
-CREATE NONCLUSTERED INDEX IX_ShippingRates_Tenant_Product 
-ON ShippingRates (TenantId, ProductType, Active);
+CREATE UNIQUE NONCLUSTERED INDEX IX_Coupons_Code_TenantId
+    ON Coupons (Code, TenantId);
 
-CREATE NONCLUSTERED INDEX IX_ShippingRates_State_Courier 
-ON ShippingRates (StateCode, CourierType, Active) 
-WHERE StateCode IS NOT NULL;
+CREATE NONCLUSTERED INDEX IX_Coupons_TenantId
+    ON Coupons (TenantId, Active, StartDate, EndDate);
 
--- ====================================== 
--- STATES TABLE INDEXES
--- ====================================== 
--- Purpose: State lookups
 
-CREATE NONCLUSTERED INDEX IX_States_TenantId 
-ON States (TenantId, Active, OrderBy ASC);
+-- ============================================================
+-- COUPON USAGE
+-- ============================================================
+-- Purpose: usage tracking and per-user limit validation
 
-CREATE NONCLUSTERED INDEX IX_States_StateCode 
-ON States (StateCode, CountryCode, Active) 
-WHERE Active = 1;
+CREATE NONCLUSTERED INDEX IX_CouponUsage_CouponId
+    ON CouponUsage (CouponId, UsedAt DESC);
 
--- ====================================== 
--- PASSWORD RESET OTPS TABLE INDEXES
--- ====================================== 
--- Purpose: OTP validation and cleanup
+CREATE NONCLUSTERED INDEX IX_CouponUsage_UserId
+    ON CouponUsage (UserId, UsedAt DESC)
+    WHERE UserId IS NOT NULL;
 
-CREATE NONCLUSTERED INDEX IX_PasswordResetOTPs_UserId 
-ON PasswordResetOTPs (UserId, Used, ExpiresAt DESC);
+CREATE NONCLUSTERED INDEX IX_CouponUsage_OrderId
+    ON CouponUsage (OrderId);
 
-CREATE NONCLUSTERED INDEX IX_PasswordResetOTPs_Email 
-ON PasswordResetOTPs (Email, Used, ExpiresAt DESC);
+CREATE UNIQUE NONCLUSTERED INDEX IX_CouponUsage_CouponId_OrderId
+    ON CouponUsage (CouponId, OrderId);
 
--- OTP lookup (for validation)
-CREATE NONCLUSTERED INDEX IX_PasswordResetOTPs_OTP 
-ON PasswordResetOTPs (UserId, OTP, ExpiresAt DESC) 
-WHERE Used = 0;
+
+-- ============================================================
+-- SHIPPING RATES
+-- ============================================================
+-- Purpose: shipping rate matrix lookups at checkout
+
+CREATE NONCLUSTERED INDEX IX_ShippingRates_Tenant_Product
+    ON ShippingRates (TenantId, ProductType, Active);
+
+CREATE NONCLUSTERED INDEX IX_ShippingRates_State_Courier
+    ON ShippingRates (StateCode, CourierType, Active)
+    WHERE StateCode IS NOT NULL;
+
+
+-- ============================================================
+-- STATES
+-- ============================================================
+-- Purpose: state reference lookups (dropdowns, validation)
+
+CREATE NONCLUSTERED INDEX IX_States_TenantId
+    ON States (TenantId, Active, OrderBy ASC);
+
+CREATE NONCLUSTERED INDEX IX_States_StateCode
+    ON States (StateCode, CountryCode, Active)
+    WHERE Active = 1;
+
+
+-- ============================================================
+-- PASSWORD RESET OTPS
+-- ============================================================
+-- Purpose: OTP validation and expired-OTP cleanup
+
+CREATE NONCLUSTERED INDEX IX_PasswordResetOTPs_UserId
+    ON PasswordResetOTPs (UserId, Used, ExpiresAt DESC);
+
+CREATE NONCLUSTERED INDEX IX_PasswordResetOTPs_Email
+    ON PasswordResetOTPs (Email, Used, ExpiresAt DESC);
+
+-- Active OTP lookup (validation path only)
+CREATE NONCLUSTERED INDEX IX_PasswordResetOTPs_OTP
+    ON PasswordResetOTPs (UserId, OTP, ExpiresAt DESC)
+    WHERE Used = 0;
 
 GO
 
--- ====================================== 
--- INDEX CREATION COMPLETE
--- ====================================== 
--- Total indexes created: 84 (optimized from 125 - 33% reduction)
--- 
--- Removed redundant indexes:
--- - Products: Removed PriceRange (merged into Price), Modified, Inventory, EmailVerification
--- - Orders: Removed OrderStatus, PaymentStatus (merged into StatusPayment), OrderDate (merged into CreatedAt),
---           UpdatedAt, ShippedAt, DeliveredAt, OrderType, Source, separate CouponId/CouponCode (merged)
--- - CartItems: Removed separate UserTenant (merged into UserId_Active)
--- - ProductReviews: Removed separate Approved and Rating indexes (merged into ProductId)
--- - ProductWishList: Removed TenantId index (rarely queried)
--- - UserRoles: Removed AssignedBy index (rarely queried)
--- - UserActivityLog: Removed PerformedBy, CreatedAt covering, Analytics filtered indexes
--- - OrderStatusHistory: Removed ChangedBy and Status indexes (rarely queried)
--- - OrderTracking: Removed Status index (rarely queried)
--- - OrderRefunds: Removed RequestedBy index (rarely queried)
--- - RazorpayPayments: Removed SignatureVerified and CreatedAt (covered by Status)
--- - RazorpayOrders: Removed CreatedAt (covered by Status)
--- - Coupons: Removed ActiveValid filtered index (covered by TenantId)
--- - PasswordResetOTPs: Removed Expired index (covered by ExpiresAt in other indexes)
--- 
--- Next Steps:
--- 1. Review index usage with SQL Server DMVs (sys.dm_db_index_usage_stats)
--- 2. Monitor query execution plans
--- 3. Adjust indexes based on actual query patterns
--- 4. Consider index maintenance (rebuild/reorganize) schedule
--- ====================================== 
+-- ============================================================
+-- APP SETTINGS
+-- ============================================================
+-- Purpose: settings read on every page load
+-- Note: UX_AppSettings_Key (unique) is defined inline in
+--       03.Consolidate_StoreProcedure.sql — this adds a
+--       separate active-filtered seek index for the common
+--       tenant settings read pattern.
+
+-- OPTIMIZED: every settings read becomes a single-row seek
+CREATE NONCLUSTERED INDEX IX_AppSettings_TenantId_Key
+    ON AppSettings (TenantId, SettingKey)
+    INCLUDE (SettingValue)
+    WHERE Active = 1;
+
+GO
+
+-- ============================================================
+-- STOCK NOTIFICATIONS
+-- ============================================================
+-- Purpose: back-in-stock dispatch job
+-- OPTIMIZED: filtered to un-notified rows only; Email INCLUDED
+--            so the dispatch job needs no key lookup
+
+CREATE NONCLUSTERED INDEX IX_StockNotifications_Pending
+    ON [dbo].[StockNotifications] (ProductId, TenantId)
+    INCLUDE (Email)
+    WHERE Notified = 0;
+
+GO

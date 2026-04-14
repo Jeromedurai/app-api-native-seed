@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Swashbuckle.AspNetCore.Annotations;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Tenant.API.Base.Controller;
@@ -716,6 +717,64 @@ namespace Tenant.Query.Controllers.Payment
             catch (System.Exception ex)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = "An error occurred while marking payment as failed. Please try again later." });
+            }
+        }
+
+        /// <summary>
+        /// Razorpay webhook endpoint — called by Razorpay servers when payment events occur.
+        /// Must be AllowAnonymous (no JWT) and must always return 200 OK so Razorpay does not retry.
+        /// Handles payment.captured and order.paid events to recover orders in the edge case where
+        /// the browser crashes between Razorpay capturing payment and the frontend calling CreateOrder.
+        /// </summary>
+        [AllowAnonymous]
+        [HttpPost]
+        [Route("webhook/razorpay")]
+        public async Task<IActionResult> RazorpayWebhook()
+        {
+            // Read raw body BEFORE any JSON parsing — required for HMAC-SHA256 signature verification
+            string rawBody;
+            try
+            {
+                Request.EnableBuffering();
+                using var reader = new StreamReader(Request.Body, System.Text.Encoding.UTF8, leaveOpen: true);
+                rawBody = await reader.ReadToEndAsync();
+                Request.Body.Position = 0;
+            }
+            catch (System.Exception ex)
+            {
+                this.Logger.LogError($"Razorpay webhook: failed to read request body: {ex.Message}");
+                return Ok(new { received = true, processed = false, message = "Failed to read body" });
+            }
+
+            // Always return 200 — Razorpay retries on any non-2xx response
+            try
+            {
+                var razorpaySignature = Request.Headers["X-Razorpay-Signature"].FirstOrDefault();
+
+                Model.Order.RazorpayWebhookPayload payload = null;
+                try
+                {
+                    var options = new System.Text.Json.JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true,
+                        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower
+                    };
+                    payload = System.Text.Json.JsonSerializer.Deserialize<Model.Order.RazorpayWebhookPayload>(rawBody, options);
+                }
+                catch (System.Exception ex)
+                {
+                    this.Logger.LogWarning($"Razorpay webhook: failed to deserialize payload: {ex.Message}");
+                    return Ok(new { received = true, processed = false, message = "Invalid payload" });
+                }
+
+                var result = await this.productService.HandleRazorpayWebhook(payload, rawBody, razorpaySignature);
+
+                return Ok(new { received = true, processed = result.Processed, message = result.Message });
+            }
+            catch (System.Exception ex)
+            {
+                this.Logger.LogError($"Razorpay webhook unhandled error: {ex.Message}");
+                return Ok(new { received = true, processed = false, message = "Internal error" });
             }
         }
 

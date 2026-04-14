@@ -1,4 +1,5 @@
 USE himalaya_db
+
 IF OBJECT_ID(N'[dbo].[SP_USER_LOGOUT]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_USER_LOGOUT];
 GO
@@ -2482,6 +2483,7 @@ CREATE PROCEDURE [dbo].[SP_ADD_PRODUCT]
 					Category,
 					Rating,
 					Active,
+					InStock,
 					Trending,
 					UserBuyCount,
 					[Return],
@@ -2510,6 +2512,7 @@ CREATE PROCEDURE [dbo].[SP_ADD_PRODUCT]
 					@Category,
 					@Rating,
 					@Active,
+					CASE WHEN @Quantity > 0 THEN 1 ELSE 0 END,
 					@Trending,
 					@UserBuyCount,
 					@Return,
@@ -2613,6 +2616,7 @@ CREATE PROCEDURE [dbo].[SP_ADD_PRODUCT]
 				Category = @Category,
 				Rating = @Rating,
 				Active = @Active,
+				InStock = CASE WHEN @Quantity > 0 THEN 1 ELSE 0 END,
 				Trending = @Trending,
 				UserBuyCount = @UserBuyCount,
 				[Return] = @Return,
@@ -2849,7 +2853,7 @@ GO
 					IF @NewQuantity > @AvailableStock
 					BEGIN
 						IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
-						RAISERROR('Only %d unit(s) available.', 16, 1, @AvailableStock);
+						RAISERROR('Insufficient stock. Only %d unit(s) available.', 16, 1, @AvailableStock);
 						RETURN;
 					END
 				

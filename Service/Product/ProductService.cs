@@ -3550,6 +3550,160 @@ namespace Tenant.Query.Service.Product
             }
         }
 
+        /// <summary>
+        /// Handle Razorpay webhook event. Verifies the HMAC-SHA256 webhook signature and processes
+        /// payment.captured / order.paid events to create/update the DB order if not already done
+        /// by the frontend (edge case: browser crash after Razorpay capture).
+        /// </summary>
+        /// <param name="payload">Deserialized webhook payload</param>
+        /// <param name="rawBody">Raw UTF-8 request body — required for signature verification</param>
+        /// <param name="razorpaySignature">X-Razorpay-Signature header value</param>
+        public async Task<Model.Order.RazorpayWebhookResult> HandleRazorpayWebhook(
+            Model.Order.RazorpayWebhookPayload payload,
+            string rawBody,
+            string razorpaySignature)
+        {
+            var logger = this._loggerFactory.CreateLogger<ProductService>();
+
+            try
+            {
+                // 1. Verify webhook signature
+                var webhookSecret = _configuration["Razorpay:WebhookSecret"];
+                if (string.IsNullOrEmpty(webhookSecret))
+                {
+                    logger.LogWarning("Razorpay:WebhookSecret is not configured — webhook signature verification skipped");
+                }
+                else
+                {
+                    if (string.IsNullOrEmpty(razorpaySignature))
+                    {
+                        logger.LogWarning("Razorpay webhook received without X-Razorpay-Signature header — rejecting");
+                        return new Model.Order.RazorpayWebhookResult { Processed = false, Message = "Missing signature" };
+                    }
+
+                    using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(webhookSecret));
+                    var computedHash = hmac.ComputeHash(Encoding.UTF8.GetBytes(rawBody));
+                    var computedSignature = BitConverter.ToString(computedHash).Replace("-", "").ToLowerInvariant();
+
+                    if (!string.Equals(computedSignature, razorpaySignature.ToLowerInvariant(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        logger.LogWarning($"Razorpay webhook signature mismatch. EventId: {payload?.EventId}");
+                        return new Model.Order.RazorpayWebhookResult { Processed = false, Message = "Signature verification failed" };
+                    }
+                }
+
+                if (payload == null)
+                    return new Model.Order.RazorpayWebhookResult { Processed = false, Message = "Empty payload" };
+
+                logger.LogInformation($"Razorpay webhook received. Event: {payload.Event}, EventId: {payload.EventId}");
+
+                // 2. Only handle payment captured / order paid events
+                var supportedEvents = new[] { "payment.captured", "order.paid" };
+                if (!supportedEvents.Contains(payload.Event, StringComparer.OrdinalIgnoreCase))
+                {
+                    logger.LogInformation($"Razorpay webhook event '{payload.Event}' ignored — not a captured payment event");
+                    return new Model.Order.RazorpayWebhookResult { Processed = false, Message = $"Event '{payload.Event}' not handled" };
+                }
+
+                // 3. Extract payment entity
+                Model.Order.RazorpayPaymentEntity paymentEntity = null;
+                if (payload.Payload != null)
+                {
+                    if (payload.Payload.TryGetValue("payment", out var paymentWrapper) && paymentWrapper?.Entity != null)
+                        paymentEntity = paymentWrapper.Entity;
+                    else if (payload.Payload.TryGetValue("order", out var orderWrapper) && orderWrapper?.Entity != null)
+                        paymentEntity = orderWrapper.Entity;
+                }
+
+                if (paymentEntity == null || string.IsNullOrEmpty(paymentEntity.OrderId))
+                {
+                    logger.LogWarning($"Razorpay webhook payload missing payment entity or OrderId. EventId: {payload.EventId}");
+                    return new Model.Order.RazorpayWebhookResult { Processed = false, Message = "Payment entity missing" };
+                }
+
+                // 4. Check if an order already exists for this Razorpay order ID (idempotency)
+                //    If the frontend already created the order successfully, we skip processing here.
+                Model.Order.PaymentStatusResponse existingStatus = null;
+                try
+                {
+                    existingStatus = await this.productRepository.GetPaymentStatus(paymentEntity.OrderId);
+                }
+                catch (Exception)
+                {
+                    // GetPaymentStatus throws when not found — this means no order exists yet, proceed
+                }
+
+                if (existingStatus != null && (
+                    string.Equals(existingStatus.PaymentStatus, "paid", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(existingStatus.PaymentStatus, "captured", StringComparison.OrdinalIgnoreCase)))
+                {
+                    logger.LogInformation($"Razorpay webhook: order already paid/captured for RazorpayOrderId={paymentEntity.OrderId}, EventId={payload.EventId} — skipping");
+                    return new Model.Order.RazorpayWebhookResult
+                    {
+                        Processed = false,
+                        Message = "Order already processed",
+                        OrderId = existingStatus.OrderId,
+                        OrderNumber = existingStatus.OrderNumber
+                    };
+                }
+
+                // 5. Update order status to paid (handles both: order exists as pending, or doesn't exist yet)
+                var updateRequest = new Model.Order.UpdateOrderStatusWithPaymentRequest
+                {
+                    RazorpayOrderId = paymentEntity.OrderId,
+                    RazorpayPaymentId = paymentEntity.Id,
+                    Status = "confirmed",
+                    PaymentStatus = "paid",
+                    Notes = $"Payment captured via Razorpay webhook. EventId: {payload.EventId}"
+                };
+
+                var updateResult = await this.productRepository.UpdateOrderStatusWithPayment(updateRequest);
+
+                if (updateResult == null)
+                {
+                    // No matching DB order found — this is normal for the standard flow where
+                    // the frontend creates the order after payment. The webhook fires before
+                    // the frontend POST completes in rare race conditions.
+                    logger.LogInformation($"Razorpay webhook: no DB order found for RazorpayOrderId={paymentEntity.OrderId} — frontend may not have called CreateOrder yet");
+                    return new Model.Order.RazorpayWebhookResult
+                    {
+                        Processed = false,
+                        Message = "Order not found in database — frontend may create it shortly"
+                    };
+                }
+
+                logger.LogInformation($"Razorpay webhook: order status updated. OrderId={updateResult.OrderId}, OrderNumber={updateResult.OrderNumber}, PaymentStatus=paid");
+
+                // 6. Send confirmation email if we have a user linked to the order
+                if (updateResult.OrderId.HasValue)
+                {
+                    try
+                    {
+                        // Retrieve userId from order to send email — best-effort, don't fail webhook on email error
+                        await SendRazorpayOrderConfirmationEmail(updateResult.OrderId.Value, userId: 0, "paid", "confirmed");
+                    }
+                    catch (Exception emailEx)
+                    {
+                        logger.LogWarning($"Razorpay webhook: failed to send confirmation email for OrderId={updateResult.OrderId}: {emailEx.Message}");
+                    }
+                }
+
+                return new Model.Order.RazorpayWebhookResult
+                {
+                    Processed = true,
+                    Message = "Webhook processed successfully",
+                    OrderId = updateResult.OrderId,
+                    OrderNumber = updateResult.OrderNumber
+                };
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"Error handling Razorpay webhook: {ex.Message}");
+                // Return a non-throwing result — the controller must always return 200 to Razorpay
+                return new Model.Order.RazorpayWebhookResult { Processed = false, Message = "Internal error — see server logs" };
+            }
+        }
+
         public async Task NotifyBackInStock(Model.Product.StockNotificationRequest request)
         {
             await this.productRepository.NotifyBackInStock(request);
