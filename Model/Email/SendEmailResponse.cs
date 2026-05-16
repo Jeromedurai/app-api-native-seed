@@ -24,5 +24,12 @@ namespace Tenant.Query.Model.Email
         /// Email subject
         /// </summary>
         public string Subject { get; set; }
+
+        /// <summary>
+        /// Set by the dispatcher when a queue row is intentionally NOT sent
+        /// (e.g. template inactive). Worker treats Skipped + Success=true as
+        /// "done, do not retry".
+        /// </summary>
+        public bool Skipped { get; set; }
     }
 }

@@ -126,6 +126,19 @@ namespace Tenant.Query.Model.Constant
             public const string SP_USER_SOCIAL_LOGIN = "[dbo].[SP_USER_SOCIAL_LOGIN]";
             public const string SP_NOTIFY_BACK_IN_STOCK = "[dbo].[SP_NOTIFY_BACK_IN_STOCK]";
             public const string SP_GET_TOP_REVIEWS = "[dbo].[SP_GET_TOP_REVIEWS]";
+
+            public const string SA_GET_EMAIL_TEMPLATE = "[dbo].[SA_GetEmailTemplate]";
+            public const string SA_GET_EMAIL_TEMPLATE_BY_ID = "[dbo].[SA_GetEmailTemplateById]";
+            public const string SA_GET_ALL_EMAIL_TEMPLATES_ADMIN = "[dbo].[SA_GetAllEmailTemplatesAdmin]";
+            public const string SA_UPSERT_EMAIL_TEMPLATE = "[dbo].[SA_UpsertEmailTemplate]";
+            public const string SA_DELETE_EMAIL_TEMPLATE = "[dbo].[SA_DeleteEmailTemplate]";
+            public const string SA_SET_EMAIL_TEMPLATE_ACTIVE = "[dbo].[SA_SetEmailTemplateActive]";
+
+            public const string SA_GET_ALL_EMAIL_SCHEDULES_ADMIN = "[dbo].[SA_GetAllEmailSchedulesAdmin]";
+            public const string SA_UPSERT_EMAIL_SCHEDULE = "[dbo].[SA_UpsertEmailSchedule]";
+            public const string SA_DELETE_EMAIL_SCHEDULE = "[dbo].[SA_DeleteEmailSchedule]";
+            public const string SA_SET_EMAIL_SCHEDULE_ACTIVE = "[dbo].[SA_SetEmailScheduleActive]";
+            public const string SA_GET_SCHEDULE_PENDING_STATS = "[dbo].[SA_GetSchedulePendingStats]";
         }
 
         public static class AddressType

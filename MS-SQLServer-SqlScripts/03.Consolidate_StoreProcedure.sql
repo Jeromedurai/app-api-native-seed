@@ -4194,9 +4194,9 @@ BEGIN
 			RETURN;
 		END
 		
-		-- Parse and validate order items
+		-- Parse order items from client JSON (Price/Total values from client are ignored below)
 		INSERT INTO @TempOrderItems (ProductId, ProductName, ProductImage, ProductCode, Price, Quantity, Total)
-		SELECT 
+		SELECT
 			CAST(JSON_VALUE(value, '$.ProductId') AS BIGINT),
 			JSON_VALUE(value, '$.ProductName'),
 			JSON_VALUE(value, '$.ProductImage'),
@@ -4205,18 +4205,32 @@ BEGIN
 			CAST(JSON_VALUE(value, '$.Quantity') AS INT),
 			CAST(JSON_VALUE(value, '$.Total') AS DECIMAL(18,2))
 		FROM OPENJSON(@OrderItems);
-		
-		-- -- Validate all products exist and are active
-		-- IF EXISTS (
-		--     SELECT 1 
-		--     FROM @TempOrderItems t
-		--     LEFT JOIN Products p ON t.ProductId = p.ProductId
-		--     WHERE p.ProductId IS NULL OR p.Active = 0
-		-- )
-		-- BEGIN
-		--     RAISERROR('One or more products not found, inactive, or do not belong to the tenant.', 16, 1);
-		--     RETURN;
-		-- END
+
+		-- Validate all products exist and are active
+		IF EXISTS (
+			SELECT 1
+			FROM @TempOrderItems t
+			LEFT JOIN Products p ON t.ProductId = p.ProductId AND p.Active = 1
+			WHERE p.ProductId IS NULL
+		)
+		BEGIN
+			RAISERROR('One or more products not found or inactive.', 16, 1);
+			RETURN;
+		END
+
+		-- Override client-sent Price/Total with authoritative values from the Products table.
+		-- This prevents price manipulation — the client payload is accepted as-is for
+		-- product identity and quantity, but all monetary values are recomputed server-side.
+		UPDATE t
+		SET
+			t.Price = p.Price,
+			t.Total = p.Price * t.Quantity
+		FROM @TempOrderItems t
+		INNER JOIN Products p ON t.ProductId = p.ProductId AND p.Active = 1;
+
+		-- Recompute totals from verified DB prices so the stored order reflects real amounts
+		SET @Subtotal    = (SELECT SUM(Total) FROM @TempOrderItems);
+		SET @TotalAmount = @Subtotal + @ShippingAmount + @TaxAmount - @DiscountAmount;
 		
 		-- Generate order number if not provided
 		IF @OrderNumber IS NULL OR @OrderNumber = ''

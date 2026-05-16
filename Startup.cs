@@ -90,6 +90,15 @@ namespace Tenant.Query
                 // This prevents unintended CORS access from unauthorized origins
             });
 
+            var jwtKey = Configuration["Jwt:Key"];
+            if (string.IsNullOrWhiteSpace(jwtKey))
+            {
+                throw new InvalidOperationException(
+                    "Jwt:Key is missing or empty. JWT Bearer cannot start without a signing key. " +
+                    "For local development, run: dotnet user-secrets set \"Jwt:Key\" \"<your-secret-at-least-32-chars>\" " +
+                    "For production, set the environment variable Jwt__Key (or your host's secret configuration).");
+            }
+
             //initialize base services
             TnBaseStartup.InitializeServices(Configuration, services);
             services.AddMvc().AddNewtonsoftJson();
