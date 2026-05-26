@@ -7,15 +7,15 @@ using System.Threading.Tasks;
 namespace Tenant.Query.Middleware
 {
     /// <summary>
-    /// Rate limiting middleware to prevent brute force attacks on authentication endpoints
-    /// Limits: 5 login/register attempts per 15 minutes per IP address
+    /// Rate limiting middleware to prevent brute force attacks on authentication endpoints.
+    /// Password auth and OTP auth use separate per-IP counters (5 attempts per 15 minutes each).
     /// </summary>
     public class RateLimitingMiddleware
     {
         private readonly RequestDelegate _next;
         private readonly ILogger<RateLimitingMiddleware> _logger;
 
-        // Track requests per IP: IP -> (count, resetTime)
+        // Track requests per IP + bucket: key -> (count, resetTime)
         private static readonly ConcurrentDictionary<string, (int count, DateTime resetTime)> RequestCounts =
             new ConcurrentDictionary<string, (int, DateTime)>();
 
@@ -23,6 +23,9 @@ namespace Tenant.Query.Middleware
         private const int MaxAttemptsPerWindow = 5;
         private const int WindowDurationMinutes = 15;
         private const int CleanupIntervalMinutes = 30;
+
+        private const string PasswordAuthBucket = "password";
+        private const string OtpAuthBucket = "otp";
 
         // Cleanup timer to prevent memory leak from accumulated entries
         private static DateTime _lastCleanup = DateTime.UtcNow;
@@ -37,20 +40,16 @@ namespace Tenant.Query.Middleware
         {
             var request = context.Request;
             var clientIp = context.Connection.RemoteIpAddress?.ToString();
+            var rateLimitBucket = GetRateLimitBucket(request.Path);
 
-            // Check if this is an auth endpoint that needs rate limiting
-            var isAuthEndpoint = request.Path.StartsWithSegments("/api/1.0/user/login") ||
-                                 request.Path.StartsWithSegments("/api/1.0/user/login-with-otp") ||
-                                 request.Path.StartsWithSegments("/api/1.0/user/register") ||
-                                 request.Path.StartsWithSegments("/api/1.0/user/forgot-password");
-
-            if (isAuthEndpoint && !string.IsNullOrEmpty(clientIp))
+            if (rateLimitBucket != null && !string.IsNullOrEmpty(clientIp))
             {
-                // Check rate limit
-                if (IsRateLimited(clientIp))
+                var bucketKey = $"{clientIp}:{rateLimitBucket}";
+
+                if (IsRateLimited(bucketKey))
                 {
-                    _logger.LogWarning("Rate limit exceeded for IP: {ClientIp} on endpoint: {Endpoint}",
-                        clientIp, request.Path);
+                    _logger.LogWarning("Rate limit exceeded for IP: {ClientIp} on endpoint: {Endpoint} (bucket: {Bucket})",
+                        clientIp, request.Path, rateLimitBucket);
 
                     context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
                     context.Response.ContentType = "application/json";
@@ -63,52 +62,66 @@ namespace Tenant.Query.Middleware
                     return;
                 }
 
-                // Record this request
-                RecordRequest(clientIp);
-
-                // Periodic cleanup to prevent memory leak
+                RecordRequest(bucketKey);
                 CleanupExpiredEntries();
             }
 
             await _next(context);
         }
 
-        private bool IsRateLimited(string clientIp)
+        private static string GetRateLimitBucket(PathString path)
         {
-            if (RequestCounts.TryGetValue(clientIp, out var data))
+            if (path.StartsWithSegments("/api/user/auth/request-login-otp") ||
+                path.StartsWithSegments("/api/user/auth/login-with-otp") ||
+                path.StartsWithSegments("/api/user/auth/resend-login-otp") ||
+                path.StartsWithSegments("/api/1.0/user/login-with-otp"))
+            {
+                return OtpAuthBucket;
+            }
+
+            if (path.StartsWithSegments("/api/user/auth/login") ||
+                path.StartsWithSegments("/api/1.0/user/login") ||
+                path.StartsWithSegments("/api/1.0/user/register") ||
+                path.StartsWithSegments("/api/1.0/user/forgot-password") ||
+                path.StartsWithSegments("/api/user/auth/forgot-password"))
+            {
+                return PasswordAuthBucket;
+            }
+
+            return null;
+        }
+
+        private bool IsRateLimited(string bucketKey)
+        {
+            if (RequestCounts.TryGetValue(bucketKey, out var data))
             {
                 var now = DateTime.UtcNow;
 
-                // Check if window has expired
                 if (now >= data.resetTime)
                 {
-                    // Window expired, not rate limited
                     return false;
                 }
 
-                // Window still active, check if limit exceeded
                 return data.count >= MaxAttemptsPerWindow;
             }
 
             return false;
         }
 
-        private void RecordRequest(string clientIp)
+        private void RecordRequest(string bucketKey)
         {
             var now = DateTime.UtcNow;
             var resetTime = now.AddMinutes(WindowDurationMinutes);
 
-            RequestCounts.AddOrUpdate(clientIp,
+            RequestCounts.AddOrUpdate(bucketKey,
                 _ => (1, resetTime),
                 (_, existing) =>
                 {
-                    // If window expired, reset counter
                     if (now >= existing.resetTime)
                     {
                         return (1, resetTime);
                     }
 
-                    // Otherwise increment counter
                     return (existing.count + 1, existing.resetTime);
                 });
         }
@@ -117,7 +130,6 @@ namespace Tenant.Query.Middleware
         {
             var now = DateTime.UtcNow;
 
-            // Only cleanup every N minutes to reduce overhead
             if ((now - _lastCleanup).TotalMinutes < CleanupIntervalMinutes)
             {
                 return;

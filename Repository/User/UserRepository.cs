@@ -1067,6 +1067,172 @@ namespace Tenant.Query.Repository.User
         }
 
         /// <summary>
+        /// Returns whether mobile OTP login is enabled via the USER_LOGIN app setting.
+        /// </summary>
+        public bool IsOtpLoginEnabled()
+        {
+            try
+            {
+                var result = _dataAccess.ExecuteScalar(
+                    "SELECT SettingValue FROM AppSettings WHERE SettingKey = 'USER_LOGIN' AND Active = 1"
+                );
+                return result != null &&
+                       result.ToString().Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Error checking USER_LOGIN setting: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Request login OTP for mobile authentication
+        /// </summary>
+        public async Task<Model.User.RequestLoginOtpResponse> RequestLoginOtp(Model.User.RequestLoginOtpRequest request, string ipAddress = null, string userAgent = null)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Login OTP requested for phone: {request.Phone}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Model.Constant.Constant.StoredProcedures.SP_REQUEST_LOGIN_OTP,
+                    request.Phone,
+                    ipAddress ?? (object)DBNull.Value,
+                    userAgent ?? (object)DBNull.Value
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                {
+                    throw new Exception("Failed to process login OTP request");
+                }
+
+                var row = result.Tables[0].Rows[0];
+                return new Model.User.RequestLoginOtpResponse
+                {
+                    Message = GetColumnValue<string>(row, "Message", "OTP has been sent to your mobile number."),
+                    ExpiresInSeconds = GetColumnValue<int>(row, "ExpiresInSeconds", 600),
+                    UserId = GetColumnValue<long>(row, "UserId", 0),
+                    OTP = GetColumnValue<string>(row, "OTP", ""),
+                    Phone = GetColumnValue<string>(row, "Phone", request.Phone),
+                    FirstName = GetColumnValue<string>(row, "FirstName", "")
+                };
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Error requesting login OTP for {request.Phone}: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Verify login OTP and return authenticated user session
+        /// </summary>
+        public async Task<Model.User.LoginResponse> LoginWithOtp(Model.User.LoginWithOtpRequest request, string ipAddress = null, string userAgent = null)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Login with OTP for phone: {request.Phone}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Model.Constant.Constant.StoredProcedures.SP_VERIFY_LOGIN_OTP,
+                    request.Phone,
+                    request.OTP,
+                    ipAddress ?? (object)DBNull.Value,
+                    userAgent ?? (object)DBNull.Value
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                {
+                    throw new UnauthorizedAccessException("Invalid OTP or phone number.");
+                }
+
+                return MapLoginResponse(result);
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Error verifying login OTP for {request.Phone}: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Resend login OTP
+        /// </summary>
+        public async Task<Model.User.RequestLoginOtpResponse> ResendLoginOtp(Model.User.RequestLoginOtpRequest request, string ipAddress = null, string userAgent = null)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Resending login OTP for phone: {request.Phone}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Model.Constant.Constant.StoredProcedures.SP_RESEND_LOGIN_OTP,
+                    request.Phone,
+                    ipAddress ?? (object)DBNull.Value,
+                    userAgent ?? (object)DBNull.Value
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                {
+                    throw new Exception("Failed to resend login OTP");
+                }
+
+                var row = result.Tables[0].Rows[0];
+                return new Model.User.RequestLoginOtpResponse
+                {
+                    Message = GetColumnValue<string>(row, "Message", "OTP has been sent to your mobile number."),
+                    ExpiresInSeconds = GetColumnValue<int>(row, "ExpiresInSeconds", 600),
+                    UserId = GetColumnValue<long>(row, "UserId", 0),
+                    OTP = GetColumnValue<string>(row, "OTP", ""),
+                    Phone = GetColumnValue<string>(row, "Phone", request.Phone),
+                    FirstName = GetColumnValue<string>(row, "FirstName", "")
+                };
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Error resending login OTP for {request.Phone}: {ex.Message}");
+                throw;
+            }
+        }
+
+        private Model.User.LoginResponse MapLoginResponse(DataSet result)
+        {
+            var rows = result.Tables[0].AsEnumerable();
+            var firstRow = rows.FirstOrDefault();
+
+            if (firstRow == null)
+            {
+                throw new UnauthorizedAccessException("Invalid OTP or phone number.");
+            }
+
+            var loginResponse = new Model.User.LoginResponse
+            {
+                UserId = firstRow.Field<long?>("UserId") ?? 0,
+                FirstName = firstRow.Field<string>("FirstName"),
+                LastName = firstRow.Field<string>("LastName"),
+                Email = firstRow.Field<string>("Email"),
+                Phone = firstRow.Field<string>("Phone"),
+                Active = firstRow.Field<bool?>("Active") ?? false,
+                TenantId = firstRow.Field<long?>("TenantId") ?? 0,
+                LastLogin = firstRow.Field<DateTime?>("LastLogin"),
+                RememberMe = firstRow.Field<bool?>("RememberMe") ?? false,
+                Roles = rows
+                    .Where(r => !r.IsNull("RoleId"))
+                    .GroupBy(r => r.Field<long>("RoleId"))
+                    .Select(g => g.First())
+                    .Select(r => new Model.User.UserRoleInfo
+                    {
+                        RoleId = r.Field<long>("RoleId"),
+                        RoleName = r.Field<string>("RoleName") ?? "",
+                        RoleDescription = r.Field<string>("RoleDescription") ?? ""
+                    })
+                    .ToList()
+            };
+
+            return loginResponse;
+        }
+
+        /// <summary>
         /// Helper method to get column value with default
         /// </summary>
         private static T GetColumnValue<T>(DataRow row, string columnName, T defaultValue = default)

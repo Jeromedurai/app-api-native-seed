@@ -44,6 +44,18 @@ IF OBJECT_ID(N'[dbo].[SP_RESEND_RESET_OTP]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_RESEND_RESET_OTP];
 GO
 
+IF OBJECT_ID(N'[dbo].[SP_REQUEST_LOGIN_OTP]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_REQUEST_LOGIN_OTP];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_VERIFY_LOGIN_OTP]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_VERIFY_LOGIN_OTP];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_RESEND_LOGIN_OTP]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_RESEND_LOGIN_OTP];
+GO
+
 IF OBJECT_ID(N'[dbo].[PasswordResetOTPs]', N'U') IS NOT NULL
 	DROP TABLE [dbo].[PasswordResetOTPs];
 GO
@@ -8459,6 +8471,260 @@ BEGIN
 END
 GO
 
+-- =============================================
+-- Request Login OTP (mobile)
+-- =============================================
+CREATE PROCEDURE [dbo].[SP_REQUEST_LOGIN_OTP]
+	@Phone NVARCHAR(20),
+	@IpAddress NVARCHAR(45) = NULL,
+	@UserAgent NVARCHAR(500) = NULL
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	BEGIN TRY
+		DECLARE @UserId BIGINT = NULL;
+		DECLARE @FirstName NVARCHAR(100) = NULL;
+		DECLARE @StoredPhone NVARCHAR(20) = NULL;
+		DECLARE @CurrentTime DATETIME2(7) = GETUTCDATE();
+		DECLARE @OTP NVARCHAR(6);
+		DECLARE @ExpiresAt DATETIME2(7);
+		DECLARE @RecentRequestCount INT = 0;
+		DECLARE @NormalizedPhone NVARCHAR(20) = LTRIM(RTRIM(@Phone));
+
+		-- Normalize: strip +91 / 91 prefix and non-digit chars (basic)
+		SET @NormalizedPhone = REPLACE(REPLACE(REPLACE(REPLACE(@NormalizedPhone, '+', ''), '-', ''), ' ', ''), '.', '');
+		IF LEN(@NormalizedPhone) = 12 AND LEFT(@NormalizedPhone, 2) = '91'
+			SET @NormalizedPhone = SUBSTRING(@NormalizedPhone, 3, 10);
+		IF LEN(@NormalizedPhone) <> 10
+		BEGIN
+			RAISERROR('Invalid phone number. Please enter a valid 10-digit mobile number.', 16, 1);
+			RETURN;
+		END
+
+		-- Find active user by phone (flexible match)
+		SELECT TOP 1
+			@UserId = UserId,
+			@FirstName = FirstName,
+			@StoredPhone = Phone
+		FROM Users
+		WHERE Active = 1
+		  AND (
+			Phone = @NormalizedPhone
+			OR Phone = '91' + @NormalizedPhone
+			OR Phone = '+91' + @NormalizedPhone
+			OR REPLACE(REPLACE(REPLACE(REPLACE(Phone, '+', ''), '-', ''), ' ', ''), '.', '') = @NormalizedPhone
+			OR REPLACE(REPLACE(REPLACE(REPLACE(Phone, '+', ''), '-', ''), ' ', ''), '.', '') = '91' + @NormalizedPhone
+		  );
+
+		IF @UserId IS NULL
+		BEGIN
+			RAISERROR('Phone number is not registered. Please sign up first.', 16, 1);
+			RETURN;
+		END
+
+		-- Rate limiting: max 3 OTP requests per hour per phone
+		SELECT @RecentRequestCount = COUNT(*)
+		FROM LoginOTPs
+		WHERE Phone = @NormalizedPhone
+		  AND CreatedAt > DATEADD(HOUR, -1, @CurrentTime)
+		  AND Used = 0;
+
+		IF @RecentRequestCount >= 3
+		BEGIN
+			RAISERROR('Too many OTP requests. Please wait before requesting again.', 16, 1);
+			RETURN;
+		END
+
+		-- Invalidate existing unused OTPs for this phone
+		UPDATE LoginOTPs
+		SET Used = 1,
+			UsedAt = @CurrentTime
+		WHERE Phone = @NormalizedPhone
+		  AND Used = 0
+		  AND ExpiresAt > @CurrentTime;
+
+		SET @OTP = RIGHT('000000' + CAST(ABS(CHECKSUM(NEWID())) % 1000000 AS NVARCHAR(6)), 6);
+		SET @ExpiresAt = DATEADD(MINUTE, 10, @CurrentTime);
+
+		INSERT INTO LoginOTPs (
+			UserId, Phone, OTP, ExpiresAt, IpAddress, UserAgent, CreatedAt
+		) VALUES (
+			@UserId, @NormalizedPhone, @OTP, @ExpiresAt, @IpAddress, @UserAgent, @CurrentTime
+		);
+
+		INSERT INTO UserActivityLog (
+			UserId, ActivityType, ActivityDescription, IpAddress, UserAgent, CreatedAt
+		) VALUES (
+			@UserId, 'LOGIN_OTP_REQUESTED', 'Login OTP requested via mobile', @IpAddress, @UserAgent, @CurrentTime
+		);
+
+		SELECT
+			'OTP has been sent to your mobile number.' AS Message,
+			600 AS ExpiresInSeconds,
+			@UserId AS UserId,
+			@OTP AS OTP,
+			@NormalizedPhone AS Phone,
+			@FirstName AS FirstName;
+
+	END TRY
+	BEGIN CATCH
+		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+		DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+		DECLARE @ErrorState INT = ERROR_STATE();
+		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+	END CATCH
+END
+GO
+
+-- =============================================
+-- Verify Login OTP and authenticate user
+-- =============================================
+CREATE PROCEDURE [dbo].[SP_VERIFY_LOGIN_OTP]
+	@Phone NVARCHAR(20),
+	@OTP NVARCHAR(6),
+	@IpAddress NVARCHAR(45) = NULL,
+	@UserAgent NVARCHAR(500) = NULL
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+
+		DECLARE @UserId BIGINT = NULL;
+		DECLARE @OtpId BIGINT = NULL;
+		DECLARE @ExpiresAt DATETIME2(7) = NULL;
+		DECLARE @Used BIT = 0;
+		DECLARE @Attempts INT = 0;
+		DECLARE @CurrentTime DATETIME2(7) = GETUTCDATE();
+		DECLARE @NormalizedPhone NVARCHAR(20) = LTRIM(RTRIM(@Phone));
+
+		SET @NormalizedPhone = REPLACE(REPLACE(REPLACE(REPLACE(@NormalizedPhone, '+', ''), '-', ''), ' ', ''), '.', '');
+		IF LEN(@NormalizedPhone) = 12 AND LEFT(@NormalizedPhone, 2) = '91'
+			SET @NormalizedPhone = SUBSTRING(@NormalizedPhone, 3, 10);
+
+		SELECT
+			@OtpId = OtpId,
+			@UserId = UserId,
+			@ExpiresAt = ExpiresAt,
+			@Used = Used,
+			@Attempts = Attempts
+		FROM LoginOTPs
+		WHERE Phone = @NormalizedPhone
+		  AND OTP = @OTP
+		  AND Used = 0;
+
+		IF @OtpId IS NULL OR @UserId IS NULL
+		BEGIN
+			IF EXISTS (SELECT 1 FROM LoginOTPs WHERE Phone = @NormalizedPhone AND Used = 0)
+			BEGIN
+				UPDATE LoginOTPs
+				SET Attempts = Attempts + 1
+				WHERE Phone = @NormalizedPhone AND Used = 0;
+			END
+
+			RAISERROR('Invalid OTP. Please check and try again.', 16, 1);
+			RETURN;
+		END
+
+		IF @Used = 1
+		BEGIN
+			RAISERROR('This OTP has already been used. Please request a new one.', 16, 1);
+			RETURN;
+		END
+
+		IF @ExpiresAt < @CurrentTime
+		BEGIN
+			UPDATE LoginOTPs SET Used = 1, UsedAt = @CurrentTime WHERE OtpId = @OtpId;
+			RAISERROR('OTP has expired. Please request a new one.', 16, 1);
+			RETURN;
+		END
+
+		IF @Attempts >= 5
+		BEGIN
+			UPDATE LoginOTPs SET Used = 1, UsedAt = @CurrentTime WHERE OtpId = @OtpId;
+			RAISERROR('Too many failed attempts. Please request a new OTP.', 16, 1);
+			RETURN;
+		END
+
+		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		BEGIN
+			RAISERROR('User account is not active.', 16, 1);
+			RETURN;
+		END
+
+		UPDATE LoginOTPs SET Used = 1, UsedAt = @CurrentTime WHERE OtpId = @OtpId;
+
+		UPDATE LoginOTPs
+		SET Used = 1, UsedAt = @CurrentTime
+		WHERE UserId = @UserId AND Used = 0 AND OtpId != @OtpId;
+
+		UPDATE Users
+		SET LoginAttempts = 0,
+			LastLogin = @CurrentTime,
+			LastLoginAttempt = @CurrentTime,
+			LastLogout = NULL,
+			AccountLocked = 0
+		WHERE UserId = @UserId;
+
+		INSERT INTO UserActivityLog (
+			UserId, ActivityType, ActivityDescription, IpAddress, UserAgent, CreatedAt
+		) VALUES (
+			@UserId, 'LOGIN_OTP', 'User logged in successfully using mobile OTP', @IpAddress, @UserAgent, @CurrentTime
+		);
+
+		-- Return same shape as SP_USER_LOGIN
+		SELECT
+			u.UserId,
+			u.FirstName,
+			u.LastName,
+			u.Email,
+			u.Phone,
+			u.Active,
+			u.TenantId,
+			u.LastLogin,
+			u.RoleId,
+			r.RoleName,
+			r.RoleDescription,
+			CAST(0 AS BIT) AS RememberMe
+		FROM Users u
+		LEFT JOIN Roles r ON u.RoleId = r.RoleId
+		WHERE u.UserId = @UserId AND u.Active = 1;
+
+		COMMIT TRANSACTION;
+
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+
+		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+		DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+		DECLARE @ErrorState INT = ERROR_STATE();
+		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+	END CATCH
+END
+GO
+
+-- =============================================
+-- Resend Login OTP
+-- =============================================
+CREATE PROCEDURE [dbo].[SP_RESEND_LOGIN_OTP]
+	@Phone NVARCHAR(20),
+	@IpAddress NVARCHAR(45) = NULL,
+	@UserAgent NVARCHAR(500) = NULL
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	EXEC [dbo].[SP_REQUEST_LOGIN_OTP]
+		@Phone = @Phone,
+		@IpAddress = @IpAddress,
+		@UserAgent = @UserAgent;
+END
+GO
+
 
 CREATE TABLE [dbo].[AppSettings](
 	[SettingId] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
@@ -8532,6 +8798,24 @@ IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'MIN_ORDER')
 
 IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'FREE_DELIVERY')
 	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('FREE_DELIVERY', '1500', 1);
+
+IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'USER_LOGIN')
+	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('USER_LOGIN', 'false', 1);
+
+IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'LANGUAGE')
+	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('LANGUAGE', 'false', 1);
+
+IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'HEADER_SEARCH')
+	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('HEADER_SEARCH', 'false', 1);
+
+IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'PRODUCT_FILTER')
+	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('PRODUCT_FILTER', 'false', 1);
+
+IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'MAINTENANCE_MODE')
+	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('MAINTENANCE_MODE', 'false', 1);
+
+IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'MAINTENANCE_MESSAGE')
+	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('MAINTENANCE_MESSAGE', '', 1);
 GO
 
 -- =============================================

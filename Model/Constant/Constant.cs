@@ -118,6 +118,9 @@ namespace Tenant.Query.Model.Constant
             public const string SP_REQUEST_PASSWORD_RESET = "[dbo].[SP_REQUEST_PASSWORD_RESET]";
             public const string SP_VERIFY_RESET_OTP = "[dbo].[SP_VERIFY_RESET_OTP]";
             public const string SP_RESEND_RESET_OTP = "[dbo].[SP_RESEND_RESET_OTP]";
+            public const string SP_REQUEST_LOGIN_OTP = "[dbo].[SP_REQUEST_LOGIN_OTP]";
+            public const string SP_VERIFY_LOGIN_OTP = "[dbo].[SP_VERIFY_LOGIN_OTP]";
+            public const string SP_RESEND_LOGIN_OTP = "[dbo].[SP_RESEND_LOGIN_OTP]";
             public const string SP_GET_APP_SETTINGS = "[dbo].[SP_GET_APP_SETTINGS]";
             public const string SP_UPSERT_APP_SETTING = "[dbo].[SP_UPSERT_APP_SETTING]";
             public const string SP_SEARCH_PRODUCTS_ENHANCED = "[dbo].[SP_SEARCH_PRODUCTS_ENHANCED]";

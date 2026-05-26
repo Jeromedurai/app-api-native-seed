@@ -15,13 +15,21 @@ namespace Tenant.Query.Service.User
 
         private Repository.User.UserRepository UserRepository;
         private Service.Email.EmailService EmailService;
+        private Service.Sms.ISmsService SmsService;
 
         #endregion
 
-        public UserService(Repository.User.UserRepository userRepository, Service.Email.EmailService emailService, ILoggerFactory loggerFactory, TnAudit xcAudit, TnValidation xcValidation) : base(xcAudit, xcValidation)
+        public UserService(
+            Repository.User.UserRepository userRepository,
+            Service.Email.EmailService emailService,
+            Service.Sms.ISmsService smsService,
+            ILoggerFactory loggerFactory,
+            TnAudit xcAudit,
+            TnValidation xcValidation) : base(xcAudit, xcValidation)
         {
             this.UserRepository = userRepository;
             this.EmailService = emailService;
+            this.SmsService = smsService;
             this.UserRepository.Logger = loggerFactory.CreateLogger<Repository.User.UserRepository>();
         }
 
@@ -84,9 +92,14 @@ namespace Tenant.Query.Service.User
             try
             {
                 this.Logger.LogInformation($"Google login attempt for: {email}");
+                this.EnsurePasswordLoginEnabled();
                 var loginResponse = await this.UserRepository.GoogleLogin(email, firstName, lastName, tenantId);
                 this.Logger.LogInformation($"Google login successful for user: {loginResponse.UserId}");
                 return loginResponse;
+            }
+            catch (InvalidOperationException)
+            {
+                throw;
             }
             catch (System.Exception ex)
             {
@@ -114,6 +127,8 @@ namespace Tenant.Query.Service.User
 
                 if (string.IsNullOrWhiteSpace(request.Password))
                     throw new ArgumentException("Password is required");
+
+                this.EnsurePasswordLoginEnabled();
 
                 // Call repository to authenticate user
                 var loginResponse = await this.UserRepository.Login(request);
@@ -643,6 +658,138 @@ namespace Tenant.Query.Service.User
             catch (System.Exception ex)
             {
                 this.Logger.LogError($"Service: Error resending password reset OTP for {request.Email}: {ex.Message}");
+                throw;
+            }
+        }
+
+        private void EnsureOtpLoginEnabled()
+        {
+            if (!this.UserRepository.IsOtpLoginEnabled())
+            {
+                throw new InvalidOperationException("Mobile OTP login is not enabled.");
+            }
+        }
+
+        private void EnsurePasswordLoginEnabled()
+        {
+            if (this.UserRepository.IsOtpLoginEnabled())
+            {
+                throw new InvalidOperationException("Only mobile OTP login is enabled.");
+            }
+        }
+
+        private async Task SendLoginOtpSmsAsync(string phone, string otp, int expiresInSeconds, string firstName)
+        {
+            var sent = await this.SmsService.SendLoginOtpAsync(phone, otp, expiresInSeconds, firstName);
+            if (!sent)
+            {
+                this.Logger.LogError($"Service: Failed to send login OTP SMS to {phone}");
+                throw new InvalidOperationException("Unable to send OTP. Please try again later.");
+            }
+        }
+
+        /// <summary>
+        /// Request login OTP for mobile authentication
+        /// </summary>
+        public async Task<Model.User.RequestLoginOtpResponse> RequestLoginOtp(Model.User.RequestLoginOtpRequest request, string ipAddress = null, string userAgent = null)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Service: Login OTP requested for phone: {request.Phone}");
+
+                if (string.IsNullOrWhiteSpace(request.Phone))
+                {
+                    throw new ArgumentException("Phone number is required");
+                }
+
+                this.EnsureOtpLoginEnabled();
+
+                var response = await this.UserRepository.RequestLoginOtp(request, ipAddress, userAgent);
+
+                if (response != null && response.UserId > 0 && !string.IsNullOrEmpty(response.OTP))
+                {
+                    await this.SendLoginOtpSmsAsync(
+                        response.Phone ?? request.Phone,
+                        response.OTP,
+                        response.ExpiresInSeconds,
+                        response.FirstName);
+                }
+
+                return response;
+            }
+            catch (System.Exception ex)
+            {
+                this.Logger.LogError($"Service: Error requesting login OTP for {request.Phone}: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Verify login OTP and authenticate user
+        /// </summary>
+        public async Task<Model.User.LoginResponse> LoginWithOtp(Model.User.LoginWithOtpRequest request, string ipAddress = null, string userAgent = null)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Service: Login with OTP for phone: {request.Phone}");
+
+                if (string.IsNullOrWhiteSpace(request.Phone))
+                {
+                    throw new ArgumentException("Phone number is required");
+                }
+
+                if (string.IsNullOrWhiteSpace(request.OTP))
+                {
+                    throw new ArgumentException("OTP is required");
+                }
+
+                this.EnsureOtpLoginEnabled();
+
+                var response = await this.UserRepository.LoginWithOtp(request, ipAddress, userAgent);
+
+                this.Logger.LogInformation($"Service: Login with OTP successful for user: {response.UserId}");
+
+                return response;
+            }
+            catch (System.Exception ex)
+            {
+                this.Logger.LogError($"Service: Error logging in with OTP for {request.Phone}: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Resend login OTP
+        /// </summary>
+        public async Task<Model.User.RequestLoginOtpResponse> ResendLoginOtp(Model.User.RequestLoginOtpRequest request, string ipAddress = null, string userAgent = null)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Service: Resending login OTP for phone: {request.Phone}");
+
+                if (string.IsNullOrWhiteSpace(request.Phone))
+                {
+                    throw new ArgumentException("Phone number is required");
+                }
+
+                this.EnsureOtpLoginEnabled();
+
+                var response = await this.UserRepository.ResendLoginOtp(request, ipAddress, userAgent);
+
+                if (response != null && response.UserId > 0 && !string.IsNullOrEmpty(response.OTP))
+                {
+                    await this.SendLoginOtpSmsAsync(
+                        response.Phone ?? request.Phone,
+                        response.OTP,
+                        response.ExpiresInSeconds,
+                        response.FirstName);
+                }
+
+                return response;
+            }
+            catch (System.Exception ex)
+            {
+                this.Logger.LogError($"Service: Error resending login OTP for {request.Phone}: {ex.Message}");
                 throw;
             }
         }

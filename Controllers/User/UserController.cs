@@ -115,6 +115,11 @@ namespace Tenant.Query.Controllers
             {
                 return StatusCode(StatusCodes.Status401Unauthorized, new ApiResult { Exception = ex.Message });
             }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("not enabled") || ex.Message.Contains("Only mobile OTP"))
+            {
+                Logger.LogWarning($"Password login disabled: {ex.Message}");
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResult { Exception = ex.Message });
+            }
             catch (InvalidOperationException ex)
             {
                 // Account locked
@@ -250,6 +255,11 @@ namespace Tenant.Query.Controllers
             catch (UnauthorizedAccessException ex)
             {
                 return StatusCode(StatusCodes.Status401Unauthorized, new ApiResult { Exception = ex.Message });
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("not enabled") || ex.Message.Contains("Only mobile OTP"))
+            {
+                Logger.LogWarning($"Password login disabled: {ex.Message}");
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResult { Exception = ex.Message });
             }
             catch (InvalidOperationException ex)
             {
@@ -401,6 +411,181 @@ namespace Tenant.Query.Controllers
             {
                 Logger.LogError($"Resend OTP error: {ex.Message}");
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = "An error occurred while processing your request." });
+            }
+        }
+
+        /// <summary>
+        /// Request login OTP for mobile authentication
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [Route("auth/request-login-otp")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public async Task<IActionResult> RequestLoginOtp([FromBody] Model.User.RequestLoginOtpRequest request)
+        {
+            try
+            {
+                if (request == null || string.IsNullOrEmpty(request.Phone))
+                {
+                    return BadRequest(new ApiResult { Exception = "Phone number is required" });
+                }
+
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                }
+
+                var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+                var userAgent = HttpContext.Request.Headers["User-Agent"].ToString();
+
+                var response = await this.Service.RequestLoginOtp(request, ipAddress, userAgent);
+                response.OTP = null;
+
+                return Ok(new ApiResult { Data = response });
+            }
+            catch (ArgumentException ex)
+            {
+                Logger.LogWarning($"Invalid request: {ex.Message}");
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("Unable to send OTP"))
+            {
+                Logger.LogWarning($"Login OTP SMS failed: {ex.Message}");
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("not enabled"))
+            {
+                Logger.LogWarning($"OTP login disabled: {ex.Message}");
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResult { Exception = ex.Message });
+            }
+            catch (System.Exception ex)
+            {
+                Logger.LogError($"Request login OTP error: {ex.Message}");
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Login with mobile OTP
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [Route("auth/login-with-otp")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Invalid OTP", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public async Task<IActionResult> LoginWithOtp([FromBody] Model.User.LoginWithOtpRequest request)
+        {
+            try
+            {
+                if (request == null)
+                {
+                    return BadRequest(new ApiResult { Exception = "Request is required" });
+                }
+
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                }
+
+                var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+                var userAgent = HttpContext.Request.Headers["User-Agent"].ToString();
+
+                var response = await this.Service.LoginWithOtp(request, ipAddress, userAgent);
+
+                return Ok(new ApiResult { Data = response });
+            }
+            catch (ArgumentException ex)
+            {
+                Logger.LogWarning($"Invalid request: {ex.Message}");
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status401Unauthorized, new ApiResult { Exception = ex.Message });
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("Unable to send OTP"))
+            {
+                Logger.LogWarning($"Login OTP SMS failed: {ex.Message}");
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("not enabled"))
+            {
+                Logger.LogWarning($"OTP login disabled: {ex.Message}");
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResult { Exception = ex.Message });
+            }
+            catch (System.Exception ex)
+            {
+                Logger.LogError($"Login with OTP error: {ex.Message}");
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Resend login OTP
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [Route("auth/resend-login-otp")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public async Task<IActionResult> ResendLoginOtp([FromBody] Model.User.RequestLoginOtpRequest request)
+        {
+            try
+            {
+                if (request == null || string.IsNullOrEmpty(request.Phone))
+                {
+                    return BadRequest(new ApiResult { Exception = "Phone number is required" });
+                }
+
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                }
+
+                var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+                var userAgent = HttpContext.Request.Headers["User-Agent"].ToString();
+
+                var response = await this.Service.ResendLoginOtp(request, ipAddress, userAgent);
+                response.OTP = null;
+
+                return Ok(new ApiResult { Data = response });
+            }
+            catch (ArgumentException ex)
+            {
+                Logger.LogWarning($"Invalid request: {ex.Message}");
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("Unable to send OTP"))
+            {
+                Logger.LogWarning($"Login OTP SMS failed: {ex.Message}");
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("not enabled"))
+            {
+                Logger.LogWarning($"OTP login disabled: {ex.Message}");
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResult { Exception = ex.Message });
+            }
+            catch (System.Exception ex)
+            {
+                Logger.LogError($"Resend login OTP error: {ex.Message}");
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
             }
         }
 
@@ -820,6 +1005,11 @@ namespace Tenant.Query.Controllers
 
                 var loginResponse = await this.Service.GoogleLogin(payload.Email, payload.GivenName ?? "", payload.FamilyName ?? "", request.TenantId);
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = loginResponse });
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("not enabled") || ex.Message.Contains("Only mobile OTP"))
+            {
+                Logger.LogWarning($"Google login disabled: {ex.Message}");
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResult { Exception = ex.Message });
             }
             catch (System.Exception ex)
             {

@@ -30,6 +30,7 @@ IF OBJECT_ID('RazorpayPayments',    'U') IS NOT NULL DROP TABLE RazorpayPayments
 IF OBJECT_ID('ShippingRates',       'U') IS NOT NULL DROP TABLE ShippingRates;
 IF OBJECT_ID('States',              'U') IS NOT NULL DROP TABLE States;
 IF OBJECT_ID('PasswordResetOTPs',   'U') IS NOT NULL DROP TABLE PasswordResetOTPs;
+IF OBJECT_ID('LoginOTPs',           'U') IS NOT NULL DROP TABLE LoginOTPs;
 
 -- Unused / future tables (commented out):
 -- IF OBJECT_ID('ProductCategories',       'U') IS NOT NULL DROP TABLE ProductCategories;
@@ -726,6 +727,26 @@ CREATE TABLE [dbo].[PasswordResetOTPs] (
 
     CONSTRAINT PK_PasswordResetOTPs         PRIMARY KEY CLUSTERED (OtpId),
     CONSTRAINT FK_PasswordResetOTPs_Users   FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE
+);
+
+GO
+
+-- LoginOTPs — one-time passwords for mobile OTP login flow
+CREATE TABLE [dbo].[LoginOTPs] (
+    OtpId       BIGINT          IDENTITY(1,1)           NOT NULL,
+    UserId      BIGINT                                  NOT NULL,
+    Phone       NVARCHAR(20)                            NOT NULL,
+    OTP         NVARCHAR(6)                             NOT NULL,
+    ExpiresAt   DATETIME2(7)                            NOT NULL,
+    Used        BIT             DEFAULT 0               NOT NULL,
+    Attempts    INT             DEFAULT 0               NOT NULL,
+    CreatedAt   DATETIME2(7)    DEFAULT GETUTCDATE()    NOT NULL,
+    UsedAt      DATETIME2(7)                                NULL,
+    IpAddress   NVARCHAR(45)                                NULL,
+    UserAgent   NVARCHAR(500)                               NULL,
+
+    CONSTRAINT PK_LoginOTPs         PRIMARY KEY CLUSTERED (OtpId),
+    CONSTRAINT FK_LoginOTPs_Users   FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE
 );
 
 GO

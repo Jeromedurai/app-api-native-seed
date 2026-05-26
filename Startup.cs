@@ -194,6 +194,15 @@ namespace Tenant.Query
 
             // Initialize scoped instance for email (used internally by ProductService)
             services.AddScoped(typeof(Service.Email.EmailService), typeof(Service.Email.EmailService));
+            var smsProvider = Configuration["Sms:Provider"] ?? "Logging";
+            if (string.Equals(smsProvider, "Msg91", StringComparison.OrdinalIgnoreCase))
+            {
+                services.AddScoped(typeof(Service.Sms.ISmsService), typeof(Service.Sms.Msg91SmsService));
+            }
+            else
+            {
+                services.AddScoped(typeof(Service.Sms.ISmsService), typeof(Service.Sms.LoggingSmsService));
+            }
             
             // Initialize scoped instance for invoice
             services.AddScoped(typeof(Service.Invoice.InvoiceService), typeof(Service.Invoice.InvoiceService));
