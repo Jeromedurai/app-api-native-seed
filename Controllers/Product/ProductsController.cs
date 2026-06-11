@@ -679,65 +679,62 @@ namespace Tenant.Query.Controllers.Product
                     limit = 8;
                 }
 
-                // Get New Products (recently added, sorted by created date)
-                var newProductsPayload = new ProductSearchPayload
-                {
-                    Page = 1,
-                    Limit = limit,
-                    SortBy = "created",
-                    SortOrder = "desc",
-                    Search = "",
-                    Active = true,
-                    MinPrice = null,
-                    MaxPrice = null
-                };
-                var newProductsResult = await this.Service.SearchProductsAsync(tenantId.ToString(), newProductsPayload);
+                var tenantIdStr = tenantId.ToString();
 
-                // Get Sale Products (products with offers) — fall back to lowest-priced active products
-                var saleProductsPayload = new ProductSearchPayload
+                // Run all three primary queries in parallel
+                var newTask = this.Service.SearchProductsAsync(tenantIdStr, new ProductSearchPayload
                 {
-                    Page = 1,
-                    Limit = limit,
-                    SortBy = "price",
-                    SortOrder = "asc",
-                    Search = "",
-                    Active = true,
-                    HasOffer = true,
-                    MinPrice = null,
-                    MaxPrice = null
-                };
-                var saleProductsResult = await this.Service.SearchProductsAsync(tenantId.ToString(), saleProductsPayload);
+                    Page = 1, Limit = limit, SortBy = "created", SortOrder = "desc",
+                    Search = "", Active = true, MinPrice = null, MaxPrice = null
+                });
+                var saleTask = this.Service.SearchProductsAsync(tenantIdStr, new ProductSearchPayload
+                {
+                    Page = 1, Limit = limit, SortBy = "price", SortOrder = "asc",
+                    Search = "", Active = true, HasOffer = true, MinPrice = null, MaxPrice = null
+                });
+                var recommendedTask = this.Service.SearchProductsAsync(tenantIdStr, new ProductSearchPayload
+                {
+                    Page = 1, Limit = limit, SortBy = "rating", SortOrder = "desc",
+                    Search = "", Active = true, BestSeller = true, MinPrice = null, MaxPrice = null
+                });
+
+                await Task.WhenAll(newTask, saleTask, recommendedTask);
+
+                var newProductsResult = await newTask;
+                var saleProductsResult = await saleTask;
+                var recommendedProductsResult = await recommendedTask;
+
+                // Fallbacks (only fire if primary returned empty — run in parallel if both needed)
+                var fallbackTasks = new List<Task>();
+                Task<ProductSearchResponse> saleFallbackTask = null;
+                Task<ProductSearchResponse> recommendedFallbackTask = null;
+
                 if (saleProductsResult?.Products == null || saleProductsResult.Products.Count == 0)
                 {
-                    saleProductsResult = await this.Service.SearchProductsAsync(tenantId.ToString(), new ProductSearchPayload
+                    saleFallbackTask = this.Service.SearchProductsAsync(tenantIdStr, new ProductSearchPayload
                     {
                         Page = 1, Limit = limit, SortBy = "price", SortOrder = "asc",
                         Search = "", Active = true, MinPrice = null, MaxPrice = null
                     });
+                    fallbackTasks.Add(saleFallbackTask);
                 }
-
-                // Get Recommended Products (best sellers) — fall back to highest-rated active products
-                var recommendedProductsPayload = new ProductSearchPayload
-                {
-                    Page = 1,
-                    Limit = limit,
-                    SortBy = "rating",
-                    SortOrder = "desc",
-                    Search = "",
-                    Active = true,
-                    BestSeller = true,
-                    MinPrice = null,
-                    MaxPrice = null
-                };
-                var recommendedProductsResult = await this.Service.SearchProductsAsync(tenantId.ToString(), recommendedProductsPayload);
                 if (recommendedProductsResult?.Products == null || recommendedProductsResult.Products.Count == 0)
                 {
-                    recommendedProductsResult = await this.Service.SearchProductsAsync(tenantId.ToString(), new ProductSearchPayload
+                    recommendedFallbackTask = this.Service.SearchProductsAsync(tenantIdStr, new ProductSearchPayload
                     {
                         Page = 1, Limit = limit, SortBy = "rating", SortOrder = "desc",
                         Search = "", Active = true, MinPrice = null, MaxPrice = null
                     });
+                    fallbackTasks.Add(recommendedFallbackTask);
                 }
+
+                if (fallbackTasks.Count > 0)
+                    await Task.WhenAll(fallbackTasks);
+
+                if (saleFallbackTask != null)
+                    saleProductsResult = await saleFallbackTask;
+                if (recommendedFallbackTask != null)
+                    recommendedProductsResult = await recommendedFallbackTask;
 
                 // Helper function to process images using Url.ActionLink for proper URL generation
                 void ProcessProductImages(ProductSearchResponse result)
