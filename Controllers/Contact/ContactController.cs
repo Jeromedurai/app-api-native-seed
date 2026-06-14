@@ -72,6 +72,38 @@ namespace Tenant.Query.Controllers.Contact
                 });
             }
         }
+
+        /// <summary>
+        /// Admin endpoint to list submitted contact-us messages.
+        /// </summary>
+        /// <param name="tenantId">Optional tenant scope. When omitted, returns all tenants.</param>
+        [Authorize]
+        [HttpGet]
+        [Route("messages")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Messages retrieved")]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error")]
+        public async Task<IActionResult> GetContactMessages([FromQuery] long? tenantId = null)
+        {
+            try
+            {
+                var messages = await _contactService.GetContactMessages(tenantId);
+
+                return Ok(new
+                {
+                    count = messages.Count,
+                    messages
+                });
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error retrieving contact messages");
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    message = "An error occurred while retrieving contact messages.",
+                    error = ex.Message
+                });
+            }
+        }
     }
 }
 

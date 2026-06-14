@@ -811,6 +811,42 @@ namespace Tenant.Query.Repository.Product
             }
         }
 
+        /// <summary>
+        /// Reads a single global AppSettings value by key (null when absent). Lives in the
+        /// repository (no email dependency) so email/notification services can use it without
+        /// creating a circular dependency through ProductService.
+        /// </summary>
+        public string GetSettingValue(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key)) return null;
+            try
+            {
+                var settings = GetAppSettings(null, null);
+                var match = settings?.FirstOrDefault(s =>
+                    string.Equals(s.SettingKey, key, StringComparison.OrdinalIgnoreCase));
+                return match?.SettingValue;
+            }
+            catch
+            {
+                // Non-fatal: callers fall back to appsettings.json / defaults.
+                return null;
+            }
+        }
+
+        /// <summary>Reads a boolean AppSettings value, falling back when absent/unparseable.</summary>
+        public bool GetSettingBool(string key, bool fallback)
+        {
+            var raw = GetSettingValue(key);
+            return bool.TryParse(raw, out var value) ? value : fallback;
+        }
+
+        /// <summary>Reads a string AppSettings value, falling back when absent/blank.</summary>
+        public string GetSettingString(string key, string fallback)
+        {
+            var raw = GetSettingValue(key);
+            return string.IsNullOrWhiteSpace(raw) ? fallback : raw;
+        }
+
         public void UpsertAppSetting(AppSettingItem setting, long? tenantId, long? userId)
         {
             try

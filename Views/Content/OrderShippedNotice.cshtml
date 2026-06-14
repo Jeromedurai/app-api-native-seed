@@ -1,0 +1,17 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Order Shipped";
+    ViewData["Preheader"] = "Your order is on the way";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">🚚 Your order has shipped</p>
+<p class="lead">Hi @name, your order is on its way! Track its journey below.</p>
+<div class="card-inner"><table class="info-table">
+@if(!string.IsNullOrWhiteSpace(V("OrderNumber"))){<tr><td class="k">Order No.</td><td class="v">@V("OrderNumber")</td></tr>}
+@if(!string.IsNullOrWhiteSpace(V("TrackingNumber"))){<tr><td class="k">Tracking</td><td class="v">@V("TrackingNumber")</td></tr>}
+@if(!string.IsNullOrWhiteSpace(V("Carrier"))){<tr><td class="k">Carrier</td><td class="v">@V("Carrier")</td></tr>}
+</table></div>
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site/account/orders">Track Shipment</a></div>

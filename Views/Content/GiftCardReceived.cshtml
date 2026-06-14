@@ -1,0 +1,13 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "You Received a Gift Card";
+    ViewData["Preheader"] = "Someone sent you a gift";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">🎁 You received a gift card!</p>
+<p class="lead">Hi @name, someone special has sent you a gift card. Redeem it on anything in our store.</p>
+@if(!string.IsNullOrWhiteSpace(V("GiftCode"))){<div class="code-box" style="color:@brand">@V("GiftCode")</div>}
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site">Redeem Gift Card</a></div>

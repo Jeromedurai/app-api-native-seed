@@ -1,0 +1,13 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Order Delivered";
+    ViewData["Preheader"] = "Your order has been delivered";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">🎉 Delivered!</p>
+<p class="lead">Hi @name, your order has been delivered. We hope you love your new plants and garden goodies!</p>
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site/account/orders">Rate Your Order</a></div>
+<p class="muted center">Tag us in your garden photos — we love to watch them grow.</p>

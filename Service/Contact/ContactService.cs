@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Tenant.API.Base.Service;
@@ -49,6 +50,23 @@ namespace Tenant.Query.Service.Contact
             catch (Exception ex)
             {
                 Logger.LogError(ex, "Service: Error creating contact message");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Retrieve contact-us messages, optionally scoped to a tenant.
+        /// </summary>
+        public async Task<List<ContactMessageInfo>> GetContactMessages(long? tenantId)
+        {
+            try
+            {
+                Logger.LogInformation("Service: Getting contact messages for tenant {TenantId}", tenantId);
+                return await _contactRepository.GetContactMessages(tenantId);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Service: Error getting contact messages");
                 throw;
             }
         }

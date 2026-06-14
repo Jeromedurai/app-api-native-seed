@@ -1,0 +1,12 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Return Approved";
+    ViewData["Preheader"] = "Your return has been approved";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">✅ Return approved</p>
+<p class="lead">Hi @name, your return has been approved. Your refund will be processed once we receive the item.</p>
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site/account/orders">View Details</a></div>

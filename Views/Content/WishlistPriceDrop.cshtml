@@ -1,0 +1,13 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Price Drop";
+    ViewData["Preheader"] = "A wishlist item is now cheaper";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">📉 Price drop on your wishlist</p>
+<p class="lead">Hi @name, an item you saved just got cheaper. Now is a great time to buy.</p>
+@if(!string.IsNullOrWhiteSpace(V("ProductName"))){<div class="card-inner"><strong>@V("ProductName")</strong>@if(!string.IsNullOrWhiteSpace(V("Price"))){<span class="price" style="float:right">@V("Price")</span>}</div>}
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site">View Item</a></div>

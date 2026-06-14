@@ -1,0 +1,12 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "How was your order?";
+    ViewData["Preheader"] = "Share your experience";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">⭐ How did we do?</p>
+<p class="lead">Hi @name, we would love to hear about your recent order. Your feedback helps us grow and helps other gardeners too.</p>
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site/account/orders">Write a Review</a></div>

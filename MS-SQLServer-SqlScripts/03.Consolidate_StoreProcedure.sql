@@ -360,6 +360,10 @@ IF OBJECT_ID(N'[dbo].[SP_CREATE_CONTACT_MESSAGE]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_CREATE_CONTACT_MESSAGE];
 GO
 
+IF OBJECT_ID(N'[dbo].[SP_GET_CONTACT_MESSAGES]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_GET_CONTACT_MESSAGES];
+GO
+
 IF OBJECT_ID(N'[dbo].[SP_GET_ALL_REVIEWS_ADMIN]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_GET_ALL_REVIEWS_ADMIN];
 GO
@@ -504,6 +508,38 @@ BEGIN
     );
 
     SET @Id = SCOPE_IDENTITY();
+END
+GO
+
+CREATE PROCEDURE [dbo].[SP_GET_CONTACT_MESSAGES]
+    @TenantId BIGINT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+        SELECT
+            Id,
+            UserId,
+            TenantId,
+            Name,
+            Email,
+            Phone,
+            Subject,
+            Message,
+            Language,
+            Source,
+            CreatedAt
+        FROM ContactMessages
+        WHERE (@TenantId IS NULL OR TenantId = @TenantId)
+        ORDER BY CreatedAt DESC;
+    END TRY
+    BEGIN CATCH
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+        DECLARE @ErrorState INT = ERROR_STATE();
+        RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+    END CATCH
 END
 GO
 
@@ -8816,6 +8852,25 @@ IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'MAINTENANCE_MODE')
 
 IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'MAINTENANCE_MESSAGE')
 	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('MAINTENANCE_MESSAGE', '', 1);
+
+-- Notifications & Email (admin-editable; secrets stay in config/env)
+IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'EMAIL_ENABLED')
+	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('EMAIL_ENABLED', 'true', 1);
+
+IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'WHATSAPP_ENABLED')
+	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('WHATSAPP_ENABLED', 'false', 1);
+
+IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'EMAIL_FROM_NAME')
+	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('EMAIL_FROM_NAME', 'Himalaya', 1);
+
+IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'EMAIL_COMPANY_NAME')
+	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('EMAIL_COMPANY_NAME', 'Himalaya Nursery', 1);
+
+IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'EMAIL_BRAND_COLOR')
+	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('EMAIL_BRAND_COLOR', '#1e7e34', 1);
+
+IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'EMAIL_PUBLIC_BASE_URL')
+	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('EMAIL_PUBLIC_BASE_URL', 'https://himalayanursery.co.in', 1);
 GO
 
 -- =============================================

@@ -1,0 +1,14 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Flash Sale";
+    ViewData["Preheader"] = "Limited time only — hurry!";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+    var ctaUrl = V("CtaUrl"); var ctaHref = string.IsNullOrWhiteSpace(ctaUrl) ? site : (ctaUrl.StartsWith("/") ? site + ctaUrl : ctaUrl);
+}
+<p class="h1">@(V("Headline") ?? "⚡ Flash Sale is LIVE")</p>
+<p class="lead">@if (!string.IsNullOrWhiteSpace(V("Message"))) { @Html.Raw(V("Message").Replace("\n", "<br>")) } else { <text>Hi @name, our biggest plants and seeds sale is on for a limited time. Blink and you might miss it!</text> }</p>
+@if (!string.IsNullOrWhiteSpace(V("CouponCode"))) { <p class="muted center" style="margin-bottom:6px">Use this code at checkout</p><div class="code-box" style="color:@brand">@V("CouponCode")</div> }
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@ctaHref">@(V("CtaText") ?? "Shop the Sale")</a></div>

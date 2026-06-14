@@ -11,6 +11,12 @@ namespace Tenant.Query.Model.Email
         public string TemplateName { get; set; }
         public string Description { get; set; }
         public string ViewName { get; set; }
+        /// <summary>Audience stored procedure for scheduled sends; NULL = event-driven/transactional.</summary>
+        public string AudienceSp { get; set; }
+        /// <summary>Grouping: Account/Orders/Payments/Cart/Marketing/Reviews/Subscription.</summary>
+        public string Category { get; set; }
+        /// <summary>Meta-approved WhatsApp template name (separate from the Razor ViewName).</summary>
+        public string WhatsAppTemplate { get; set; }
         public bool Active { get; set; }
     }
 }

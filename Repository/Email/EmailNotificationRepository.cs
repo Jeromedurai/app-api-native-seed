@@ -89,6 +89,9 @@ namespace Tenant.Query.Repository.Email
             cmd.Parameters.Add(new SqlParameter("@ViewName",     SqlDbType.VarChar, 100)   { Value = (object)req.ViewName     ?? DBNull.Value });
             cmd.Parameters.Add(new SqlParameter("@Active",       SqlDbType.Bit)            { Value = req.Active });
             cmd.Parameters.Add(new SqlParameter("@TenantId",     SqlDbType.BigInt)         { Value = (object)tenantId ?? DBNull.Value });
+            cmd.Parameters.Add(new SqlParameter("@AudienceSp",   SqlDbType.NVarChar, 200)  { Value = string.IsNullOrWhiteSpace(req.AudienceSp) ? (object)DBNull.Value : req.AudienceSp });
+            cmd.Parameters.Add(new SqlParameter("@Category",     SqlDbType.NVarChar, 50)   { Value = string.IsNullOrWhiteSpace(req.Category)   ? (object)DBNull.Value : req.Category });
+            cmd.Parameters.Add(new SqlParameter("@WhatsAppTemplate", SqlDbType.NVarChar, 100) { Value = string.IsNullOrWhiteSpace(req.WhatsAppTemplate) ? (object)DBNull.Value : req.WhatsAppTemplate });
 
             await conn.OpenAsync();
             var scalar = await cmd.ExecuteScalarAsync();
@@ -179,6 +182,14 @@ namespace Tenant.Query.Repository.Email
             cmd.Parameters.Add(new SqlParameter("@Time",                SqlDbType.Time)          { Value = timeValue });
             cmd.Parameters.Add(new SqlParameter("@Active",              SqlDbType.Bit)           { Value = req.Active });
             cmd.Parameters.Add(new SqlParameter("@TenantId",            SqlDbType.BigInt)        { Value = (object)tenantId ?? DBNull.Value });
+            cmd.Parameters.Add(new SqlParameter("@ExcludedUserIds",     SqlDbType.NVarChar, -1)  { Value = string.IsNullOrWhiteSpace(req.ExcludedUserIds) ? (object)DBNull.Value : req.ExcludedUserIds });
+            cmd.Parameters.Add(new SqlParameter("@CouponCode",          SqlDbType.NVarChar, 50)  { Value = string.IsNullOrWhiteSpace(req.CouponCode)      ? (object)DBNull.Value : req.CouponCode });
+            cmd.Parameters.Add(new SqlParameter("@Channels",            SqlDbType.NVarChar, 50)  { Value = string.IsNullOrWhiteSpace(req.Channels)        ? (object)DBNull.Value : req.Channels });
+            cmd.Parameters.Add(new SqlParameter("@Subject",             SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(req.Subject)         ? (object)DBNull.Value : req.Subject });
+            cmd.Parameters.Add(new SqlParameter("@Headline",            SqlDbType.NVarChar, 200) { Value = string.IsNullOrWhiteSpace(req.Headline)        ? (object)DBNull.Value : req.Headline });
+            cmd.Parameters.Add(new SqlParameter("@Message",             SqlDbType.NVarChar, -1)  { Value = string.IsNullOrWhiteSpace(req.Message)         ? (object)DBNull.Value : req.Message });
+            cmd.Parameters.Add(new SqlParameter("@CtaText",             SqlDbType.NVarChar, 50)  { Value = string.IsNullOrWhiteSpace(req.CtaText)         ? (object)DBNull.Value : req.CtaText });
+            cmd.Parameters.Add(new SqlParameter("@CtaUrl",              SqlDbType.NVarChar, 300) { Value = string.IsNullOrWhiteSpace(req.CtaUrl)          ? (object)DBNull.Value : req.CtaUrl });
 
             await conn.OpenAsync();
             var scalar = await cmd.ExecuteScalarAsync();
@@ -322,6 +333,9 @@ namespace Tenant.Query.Repository.Email
             TemplateName = ReadString(reader, "TEMPLATENAME"),
             Description  = ReadString(reader, "DESCRIPTION"),
             ViewName     = ReadString(reader, "VIEWNAME"),
+            AudienceSp   = ReadString(reader, "AUDIENCESP"),
+            Category     = ReadString(reader, "CATEGORY"),
+            WhatsAppTemplate = ReadString(reader, "WHATSAPPTEMPLATE"),
             Active       = ReadBool(reader, "ACTIVE")
         };
 
@@ -349,6 +363,14 @@ namespace Tenant.Query.Repository.Email
                 SendByLabel         = SendByLabelFor(sendBy),
                 Day                 = ReadString(reader, "DAY"),
                 Time                = time,
+                ExcludedUserIds     = ReadString(reader, "EXCLUDEDUSERIDS"),
+                CouponCode          = ReadString(reader, "COUPONCODE"),
+                Channels            = ReadString(reader, "CHANNELS"),
+                Subject             = ReadString(reader, "SUBJECT"),
+                Headline            = ReadString(reader, "HEADLINE"),
+                Message             = ReadString(reader, "MESSAGE"),
+                CtaText             = ReadString(reader, "CTATEXT"),
+                CtaUrl              = ReadString(reader, "CTAURL"),
                 Active              = ReadBool(reader, "ACTIVE")
             };
         }

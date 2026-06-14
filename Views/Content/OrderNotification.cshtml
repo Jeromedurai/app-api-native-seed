@@ -1,0 +1,13 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Order Update";
+    ViewData["Preheader"] = "There is an update on your order";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">Your order has an update</p>
+<p class="lead">Hi @name, there is news about your recent order with us.</p>
+@if (!string.IsNullOrWhiteSpace(V("Body"))) { <div class="card-inner">@V("Body")</div> }
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site/account/orders">View Order</a></div>

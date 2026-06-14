@@ -1,0 +1,12 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Your Question was Answered";
+    ViewData["Preheader"] = "There is a reply to your question";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">💬 Your question was answered</p>
+<p class="lead">Hi @name, someone has answered the question you asked about a product. Take a look!</p>
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site">View Answer</a></div>

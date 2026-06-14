@@ -1,0 +1,12 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Order Delayed";
+    ViewData["Preheader"] = "A small delay with your order";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">A small delay with your order</p>
+<p class="lead">Hi @name, we are sorry — your order is taking a little longer than expected. We are working to get it to you as soon as possible.</p>
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site/account/orders">View Order</a></div>

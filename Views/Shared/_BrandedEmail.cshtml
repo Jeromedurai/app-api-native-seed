@@ -1,0 +1,118 @@
+@model dynamic
+@*
+    Shared branded email shell (Myntra/Flipkart-style).
+    Content views set: @{ Layout = "_BrandedEmail"; ViewData["Title"] = "..."; }
+    and write their body markup; it is injected via @RenderBody().
+    Must live in Views/Shared so Razor resolves it by name from the content views.
+
+    Branding is injected centrally by EmailService.ApplyBranding (case-insensitive):
+        LogoUrl, CompanyName, BrandColor, SiteUrl, Year, SupportEmail
+    Optional per-view ViewData: "Preheader" (hidden inbox preview text).
+
+    Reusable classes available to content views:
+        .h1 .lead .muted .card-inner .btn .btn-wrap
+        .info-table .pill .divider .center .price .code-box
+*@
+@{
+    var brand = (Model.BrandColor as string) ?? "#1e7e34";
+    var company = (Model.CompanyName as string) ?? "Himalaya Nursery";
+    var site = (Model.SiteUrl as string) ?? "#";
+    var logo = Model.LogoUrl as string;
+    var year = Model.Year?.ToString() ?? DateTime.Now.Year.ToString();
+    var support = Model.SupportEmail as string;
+    var preheader = ViewData["Preheader"] as string ?? "";
+    var title = ViewData["Title"] as string ?? (Model.Subject as string) ?? company;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="x-apple-disable-message-reformatting">
+    <title>@title</title>
+    <style>
+        body { margin:0; padding:0; background:#f1f3f6; -webkit-font-smoothing:antialiased; }
+        table { border-collapse:collapse; }
+        img { border:0; line-height:100%; outline:none; text-decoration:none; }
+        a { text-decoration:none; }
+        .email-bg { width:100%; background:#f1f3f6; padding:24px 12px; font-family:'Segoe UI',Arial,Helvetica,sans-serif; }
+        .email-card { max-width:600px; margin:0 auto; background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,.06); }
+        .brandbar { padding:18px 28px; }
+        .brandbar td { vertical-align:middle; }
+        .brand-logo { height:36px; width:auto; display:inline-block; vertical-align:middle; }
+        .brand-name { color:#ffffff; font-size:20px; font-weight:700; letter-spacing:.2px; display:inline-block; vertical-align:middle; margin-left:10px; }
+        .brand-tag { color:rgba(255,255,255,.85); font-size:12px; text-align:right; }
+        .content { padding:32px 28px 8px; color:#2d2d2d; font-size:15px; line-height:1.6; }
+        .h1 { font-size:22px; font-weight:700; color:#212121; margin:0 0 12px; }
+        .lead { font-size:15px; color:#454545; margin:0 0 18px; }
+        .muted { color:#878787; font-size:13px; }
+        .center { text-align:center; }
+        .card-inner { background:#f8f9fb; border:1px solid #eceff3; border-radius:10px; padding:18px 20px; margin:18px 0; }
+        .info-table { width:100%; font-size:14px; }
+        .info-table td { padding:6px 2px; vertical-align:top; }
+        .info-table td.k { color:#717171; }
+        .info-table td.v { text-align:right; font-weight:600; color:#212121; }
+        .btn-wrap { text-align:center; margin:26px 0 10px; }
+        .btn { display:inline-block; padding:13px 34px; border-radius:8px; color:#ffffff !important; font-size:15px; font-weight:700; }
+        .pill { display:inline-block; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:600; }
+        .code-box { font-size:26px; font-weight:700; letter-spacing:6px; text-align:center; padding:16px; border-radius:10px; background:#f0f7f2; color:#1e7e34; margin:18px 0; }
+        .price { font-size:24px; font-weight:700; color:#212121; }
+        .divider { height:1px; background:#eceff3; margin:24px 0; line-height:1px; }
+        .footer { padding:22px 28px 30px; text-align:center; color:#9aa0a6; font-size:12px; line-height:1.7; }
+        .footer a { color:#717171; }
+        .social a { display:inline-block; margin:0 7px; color:#717171; font-weight:600; }
+        @@media only screen and (max-width:600px){
+            .content { padding:24px 18px 6px; }
+            .brandbar { padding:16px 18px; }
+            .h1 { font-size:20px; }
+        }
+    </style>
+</head>
+<body>
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">@preheader</div>
+    <div class="email-bg">
+        <table class="email-card" width="600" align="center" role="presentation">
+            <!-- Brand bar -->
+            <tr>
+                <td style="background:@brand;">
+                    <table class="brandbar" width="100%" role="presentation">
+                        <tr>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(logo))
+                                {
+                                    <img class="brand-logo" src="@logo" alt="@company" />
+                                }
+                                <span class="brand-name">@company</span>
+                            </td>
+                            <td class="brand-tag">Grow with us 🌿</td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+            <!-- Body -->
+            <tr>
+                <td class="content">
+                    @RenderBody()
+                </td>
+            </tr>
+            <!-- Footer -->
+            <tr>
+                <td class="footer">
+                    <div class="divider"></div>
+                    <div class="social" style="margin-bottom:10px;">
+                        <a href="@site">Shop</a> ·
+                        <a href="@site/account/orders">My Orders</a> ·
+                        <a href="@site/contact">Contact</a>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(support))
+                    {
+                        <div>Need help? Write to <a href="mailto:@support">@support</a></div>
+                    }
+                    <div style="margin-top:8px;">You're receiving this email from @company.</div>
+                    <div>&copy; @year @company. All rights reserved.</div>
+                </td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>

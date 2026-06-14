@@ -1,0 +1,14 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Your Verification Code";
+    ViewData["Preheader"] = "Your one-time verification code";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34";
+    var code = V("OTP") ?? V("Code") ?? "------";
+}
+<p class="h1">Your verification code</p>
+<p class="lead">Hi @name, use this one-time code to continue. It expires in a few minutes.</p>
+<div class="code-box" style="color:@brand">@code</div>
+<p class="muted center">For your security, never share this code with anyone.</p>

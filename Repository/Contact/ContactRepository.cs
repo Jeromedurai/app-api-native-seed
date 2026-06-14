@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Sa.Common.ADO.DataAccess;
@@ -58,6 +60,55 @@ namespace Tenant.Query.Repository.Contact
                 Logger.LogError(ex, "Repository: Error creating contact message");
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Retrieve contact-us messages using the SP_GET_CONTACT_MESSAGES stored procedure.
+        /// When tenantId is null, returns messages across all tenants.
+        /// </summary>
+        public async Task<List<ContactMessageInfo>> GetContactMessages(long? tenantId)
+        {
+            try
+            {
+                Logger.LogInformation("Repository: Getting contact messages for tenant {TenantId}", tenantId);
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Constant.StoredProcedures.SP_GET_CONTACT_MESSAGES,
+                    tenantId ?? (object)DBNull.Value
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                {
+                    return new List<ContactMessageInfo>();
+                }
+
+                return result.Tables[0].AsEnumerable()
+                    .Select(MapToContactMessageInfo)
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Repository: Error getting contact messages");
+                throw;
+            }
+        }
+
+        private static ContactMessageInfo MapToContactMessageInfo(DataRow row)
+        {
+            return new ContactMessageInfo
+            {
+                Id = Convert.ToInt64(row["Id"]),
+                UserId = row["UserId"] != DBNull.Value ? Convert.ToInt64(row["UserId"]) : (long?)null,
+                TenantId = row["TenantId"] != DBNull.Value ? Convert.ToInt64(row["TenantId"]) : (long?)null,
+                Name = row["Name"] as string,
+                Email = row["Email"] as string,
+                Phone = row["Phone"] as string,
+                Subject = row["Subject"] as string,
+                Message = row["Message"] as string,
+                Language = row["Language"] as string,
+                Source = row["Source"] as string,
+                CreatedAt = Convert.ToDateTime(row["CreatedAt"])
+            };
         }
     }
 }

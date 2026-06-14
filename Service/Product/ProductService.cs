@@ -1201,6 +1201,12 @@ namespace Tenant.Query.Service.Product
             }
         }
 
+        // Single-key settings reads delegate to the repository (the dependency-free home for
+        // these helpers, so email/notification services can use them without a circular dep).
+        public string GetSettingValue(string key) => productRepository.GetSettingValue(key);
+        public bool GetSettingBool(string key, bool fallback) => productRepository.GetSettingBool(key, fallback);
+        public string GetSettingString(string key, string fallback) => productRepository.GetSettingString(key, fallback);
+
         public SaveAppSettingsResponse SaveAppSettings(SaveAppSettingsRequest request)
         {
             try

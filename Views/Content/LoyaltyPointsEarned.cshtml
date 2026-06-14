@@ -1,0 +1,13 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Points Earned";
+    ViewData["Preheader"] = "You just earned reward points";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">🏆 You earned points!</p>
+<p class="lead">Hi @name, thanks for shopping with us — you have earned loyalty points on your purchase.</p>
+@if(!string.IsNullOrWhiteSpace(V("Points"))){<div class="code-box" style="color:@brand">@V("Points") pts</div>}
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site/account">View Rewards</a></div>

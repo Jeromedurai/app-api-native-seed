@@ -198,6 +198,7 @@ namespace Tenant.Query
             services.AddScoped(typeof(Service.Email.NotificationSettingsService), typeof(Service.Email.NotificationSettingsService));
             services.AddMemoryCache();
             services.AddScoped(typeof(Service.Email.NotificationDispatcherService), typeof(Service.Email.NotificationDispatcherService));
+            services.AddScoped(typeof(Service.Email.NotificationWhatsAppDispatcherService), typeof(Service.Email.NotificationWhatsAppDispatcherService));
             var smsProvider = Configuration["Sms:Provider"] ?? "Logging";
             if (string.Equals(smsProvider, "Msg91", StringComparison.OrdinalIgnoreCase))
             {
@@ -206,6 +207,17 @@ namespace Tenant.Query
             else
             {
                 services.AddScoped(typeof(Service.Sms.ISmsService), typeof(Service.Sms.LoggingSmsService));
+            }
+
+            // WhatsApp channel sender — default Logging no-op; set WhatsApp:Provider = "Msg91" to send.
+            var whatsAppProvider = Configuration["WhatsApp:Provider"] ?? "Logging";
+            if (string.Equals(whatsAppProvider, "Msg91", StringComparison.OrdinalIgnoreCase))
+            {
+                services.AddScoped(typeof(Service.Whatsapp.IWhatsAppService), typeof(Service.Whatsapp.Msg91WhatsAppService));
+            }
+            else
+            {
+                services.AddScoped(typeof(Service.Whatsapp.IWhatsAppService), typeof(Service.Whatsapp.LoggingWhatsAppService));
             }
             
             // Initialize scoped instance for invoice

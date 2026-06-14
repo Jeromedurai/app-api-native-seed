@@ -1,0 +1,13 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "EMI Reminder";
+    ViewData["Preheader"] = "Your installment is due soon";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">EMI reminder</p>
+<p class="lead">Hi @name, this is a friendly reminder that your next installment is due soon. Please ensure funds are available.</p>
+@if(!string.IsNullOrWhiteSpace(V("DueDate"))){<div class="card-inner"><table class="info-table"><tr><td class="k">Due Date</td><td class="v">@V("DueDate")</td></tr>@if(!string.IsNullOrWhiteSpace(V("Amount"))){<tr><td class="k">Amount</td><td class="v">@V("Amount")</td></tr>}</table></div>}
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site/account">Pay Now</a></div>

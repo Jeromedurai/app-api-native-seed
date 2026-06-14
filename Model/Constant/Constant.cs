@@ -126,6 +126,7 @@ namespace Tenant.Query.Model.Constant
             public const string SP_SEARCH_PRODUCTS_ENHANCED = "[dbo].[SP_SEARCH_PRODUCTS_ENHANCED]";
             public const string SP_GET_SEARCH_SUGGESTIONS = "[dbo].[SP_GET_SEARCH_SUGGESTIONS]";
             public const string SP_CREATE_CONTACT_MESSAGE = "[dbo].[SP_CREATE_CONTACT_MESSAGE]";
+            public const string SP_GET_CONTACT_MESSAGES = "[dbo].[SP_GET_CONTACT_MESSAGES]";
             public const string SP_USER_SOCIAL_LOGIN = "[dbo].[SP_USER_SOCIAL_LOGIN]";
             public const string SP_NOTIFY_BACK_IN_STOCK = "[dbo].[SP_NOTIFY_BACK_IN_STOCK]";
             public const string SP_GET_TOP_REVIEWS = "[dbo].[SP_GET_TOP_REVIEWS]";

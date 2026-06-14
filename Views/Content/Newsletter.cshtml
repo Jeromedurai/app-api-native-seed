@@ -1,0 +1,14 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Himalaya Nursery Newsletter";
+    ViewData["Preheader"] = "Fresh tips, offers and arrivals";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+    var ctaUrl = V("CtaUrl"); var ctaHref = string.IsNullOrWhiteSpace(ctaUrl) ? site : (ctaUrl.StartsWith("/") ? site + ctaUrl : ctaUrl);
+}
+<p class="h1">@(V("Headline") ?? "🌿 This week at Himalaya Nursery")</p>
+<p class="lead">@if (!string.IsNullOrWhiteSpace(V("Message"))) { @Html.Raw(V("Message").Replace("\n", "<br>")) } else { <text>Hi @name, here is your dose of gardening inspiration — new arrivals, seasonal care tips and members-only offers.</text> }</p>
+@if(!string.IsNullOrWhiteSpace(V("Body"))){<div class="card-inner">@V("Body")</div>}
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@ctaHref">@(V("CtaText") ?? "Read More")</a></div>

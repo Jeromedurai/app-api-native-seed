@@ -1,0 +1,12 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Refund Completed";
+    ViewData["Preheader"] = "Your refund is complete";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">✅ Refund completed</p>
+<p class="lead">Hi @name, your refund has been completed and credited to your original payment method.</p>
+@if(!string.IsNullOrWhiteSpace(V("Amount"))){<div class="card-inner"><table class="info-table"><tr><td class="k">Amount</td><td class="v">@V("Amount")</td></tr></table></div>}

@@ -1,0 +1,13 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Order Cancelled";
+    ViewData["Preheader"] = "Your order has been cancelled";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">Order cancelled</p>
+<p class="lead">Hi @name, your order has been cancelled. Any amount paid will be refunded as per our policy.</p>
+@if(!string.IsNullOrWhiteSpace(V("OrderNumber"))){<div class="card-inner"><table class="info-table"><tr><td class="k">Order No.</td><td class="v">@V("OrderNumber")</td></tr></table></div>}
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site">Continue Shopping</a></div>

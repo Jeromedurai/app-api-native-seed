@@ -1,0 +1,12 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Return Requested";
+    ViewData["Preheader"] = "We received your return request";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">Return request received</p>
+<p class="lead">Hi @name, we have received your return request and our team is reviewing it. We will update you shortly.</p>
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site/account/orders">View Request</a></div>

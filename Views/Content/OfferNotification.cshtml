@@ -1,0 +1,14 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "A Special Offer";
+    ViewData["Preheader"] = "An exclusive offer picked for you";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+    var ctaUrl = V("CtaUrl"); var ctaHref = string.IsNullOrWhiteSpace(ctaUrl) ? site : (ctaUrl.StartsWith("/") ? site + ctaUrl : ctaUrl);
+}
+<p class="h1">@(V("Headline") ?? "🎁 An offer just for you")</p>
+<p class="lead">@if (!string.IsNullOrWhiteSpace(V("Message"))) { @Html.Raw(V("Message").Replace("\n", "<br>")) } else { <text>Hi @name, we have handpicked a special deal we think you will love.</text> }</p>
+@if (!string.IsNullOrWhiteSpace(V("CouponCode"))) { <div class="code-box" style="color:@brand">@V("CouponCode")</div> }
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@ctaHref">@(V("CtaText") ?? "Shop the Offer")</a></div>

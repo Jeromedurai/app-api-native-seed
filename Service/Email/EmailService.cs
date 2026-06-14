@@ -85,6 +85,58 @@ namespace Tenant.Query.Service.Email
         }
 
         /// <summary>
+        /// Injects shared brand identity into the view model when not already provided.
+        /// Drives the branded email layout: logo, company name, colours, links, year.
+        /// </summary>
+        /// <summary>
+        /// Reads an admin-editable AppSettings value, falling back to <paramref name="fallback"/>.
+        /// Resolves ProductRepository from the service provider to avoid a circular DI dependency
+        /// (ProductService depends on EmailService).
+        /// </summary>
+        private string Setting(string key, string fallback)
+        {
+            try
+            {
+                var repo = _serviceProvider.GetService(typeof(Repository.Product.ProductRepository))
+                    as Repository.Product.ProductRepository;
+                return repo?.GetSettingString(key, fallback) ?? fallback;
+            }
+            catch
+            {
+                return fallback;
+            }
+        }
+
+        private void ApplyBranding(IDictionary<string, object> model)
+        {
+            if (model == null) return;
+
+            // AppSettings → appsettings.json → hardcoded default.
+            var baseUrl = Setting("EMAIL_PUBLIC_BASE_URL",
+                _configuration["Email:PublicBaseUrl"] ?? "https://himalayanursery.co.in").TrimEnd('/');
+            var companyName = Setting("EMAIL_COMPANY_NAME",
+                _configuration["Email:CompanyName"] ?? _configuration["Email:FromName"] ?? "Himalaya Nursery");
+            var brandColor = Setting("EMAIL_BRAND_COLOR",
+                _configuration["Email:BrandColor"] ?? "#1e7e34");
+            var supportEmail = _configuration["Email:FromEmail"];
+
+            void Fill(string key, object value)
+            {
+                if (!model.ContainsKey(key) || model[key] == null || string.IsNullOrWhiteSpace(model[key]?.ToString()))
+                {
+                    model[key] = value;
+                }
+            }
+
+            Fill("LogoUrl", $"{baseUrl}/images/logo.png");
+            Fill("CompanyName", companyName);
+            Fill("BrandColor", brandColor);
+            Fill("SiteUrl", baseUrl);
+            Fill("Year", DateTime.Now.Year);
+            if (!string.IsNullOrWhiteSpace(supportEmail)) Fill("SupportEmail", supportEmail);
+        }
+
+        /// <summary>
         /// Gets ActionContext for view rendering
         /// </summary>
         private ActionContext GetActionContext()
@@ -98,7 +150,9 @@ namespace Tenant.Query.Service.Email
         /// </summary>  
         private IView FindView(ActionContext actionContext, string viewName)
         {
-            var getViewResult = _razorViewEngine.GetView(null, $"~/Views/Content/{viewName}.cshtml", false);
+            // isMainPage: true so views can opt into a shared Layout (_BrandedEmail).
+            // Existing self-contained views set no Layout, so their output is unchanged.
+            var getViewResult = _razorViewEngine.GetView(null, $"~/Views/Content/{viewName}.cshtml", true);
 
             if (getViewResult.Success)
             {
@@ -166,18 +220,20 @@ namespace Tenant.Query.Service.Email
                     };
                 }
 
-                // Convert template data dictionary to dynamic object for Razor view
-                object templateModel = request.TemplateData;
-                if (request.TemplateData != null && request.TemplateData.Count > 0)
+                // Convert template data dictionary to dynamic object for Razor view,
+                // injecting shared branding (logo, company, colours) so every view —
+                // including the branded layout — renders consistently. Caller-supplied
+                // values win (only fill keys that are missing).
+                var dynamicModel = new System.Dynamic.ExpandoObject() as IDictionary<string, object>;
+                if (request.TemplateData != null)
                 {
-                    // Create a dynamic object from dictionary
-                    var dynamicModel = new System.Dynamic.ExpandoObject() as IDictionary<string, object>;
                     foreach (var kvp in request.TemplateData)
                     {
                         dynamicModel[kvp.Key] = kvp.Value;
                     }
-                    templateModel = dynamicModel;
                 }
+                ApplyBranding(dynamicModel);
+                object templateModel = dynamicModel;
 
                 // Render the email template
                 var emailBody = await RenderViewToStringAsync(request.TemplateName, templateModel);
@@ -189,7 +245,7 @@ namespace Tenant.Query.Service.Email
                 var smtpUsername = _configuration["Email:SmtpUsername"];
                 var smtpPassword = _configuration["Email:SmtpPassword"];
                 var fromEmail = request.FromEmail ?? _configuration["Email:FromEmail"] ?? smtpUsername;
-                var fromName = request.FromName ?? _configuration["Email:FromName"] ?? "Himalaya";
+                var fromName = request.FromName ?? Setting("EMAIL_FROM_NAME", _configuration["Email:FromName"] ?? "Himalaya");
 
                 if (string.IsNullOrEmpty(smtpUsername) || string.IsNullOrEmpty(smtpPassword))
                 {

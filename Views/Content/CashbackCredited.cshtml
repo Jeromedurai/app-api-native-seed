@@ -1,0 +1,13 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Cashback Credited";
+    ViewData["Preheader"] = "Cashback added to your account";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">💰 Cashback credited</p>
+<p class="lead">Hi @name, cashback from your recent purchase has been credited. Spend it on your next order!</p>
+@if(!string.IsNullOrWhiteSpace(V("Amount"))){<div class="code-box" style="color:@brand">@V("Amount")</div>}
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site">Shop Now</a></div>

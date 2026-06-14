@@ -1,0 +1,17 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "Invoice / Receipt";
+    ViewData["Preheader"] = "Your receipt is ready";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">🧾 Your receipt</p>
+<p class="lead">Hi @name, thank you for your purchase. Here is a summary of your order.</p>
+<div class="card-inner"><table class="info-table">
+@if(!string.IsNullOrWhiteSpace(V("OrderNumber"))){<tr><td class="k">Order No.</td><td class="v">@V("OrderNumber")</td></tr>}
+@if(!string.IsNullOrWhiteSpace(V("OrderDate"))){<tr><td class="k">Date</td><td class="v">@V("OrderDate")</td></tr>}
+@if(!string.IsNullOrWhiteSpace(V("TotalAmount"))){<tr><td class="k">Amount Paid</td><td class="v">@V("TotalAmount")</td></tr>}
+</table></div>
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site/account/orders">Download Invoice</a></div>

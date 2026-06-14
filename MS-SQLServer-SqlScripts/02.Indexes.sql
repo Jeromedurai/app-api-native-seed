@@ -253,6 +253,12 @@ CREATE NONCLUSTERED INDEX IX_CartItems_Expiration
     ON CartItems (ExpiresAt ASC)
     WHERE ExpiresAt IS NOT NULL AND Active = 1;
 
+-- Abandoned-cart audience SP (SA_Audience_AbandonedCart): Active + AddedDate
+-- range with optional TenantId; UserId/CartId INCLUDEd so the scan needs no lookup
+CREATE NONCLUSTERED INDEX IX_CartItems_Active_AddedDate_inc
+    ON CartItems (Active, AddedDate, TenantId)
+    INCLUDE (UserId, CartId);
+
 
 -- ============================================================
 -- ORDERS
@@ -543,5 +549,32 @@ CREATE NONCLUSTERED INDEX IX_StockNotifications_Pending
     ON [dbo].[StockNotifications] (ProductId, TenantId)
     INCLUDE (Email)
     WHERE Notified = 0;
+
+GO
+
+-- ============================================================
+-- CONTACT MESSAGES
+-- ============================================================
+-- Purpose: admin Contact Messages page (SP_GET_CONTACT_MESSAGES)
+-- OPTIMIZED: serves WHERE TenantId + ORDER BY CreatedAt DESC with no
+--            sort operator; INCLUDE covers the SELECT so no key lookups
+
+CREATE NONCLUSTERED INDEX IX_ContactMessages_TenantId_CreatedAt_inc
+    ON [dbo].[ContactMessages] (TenantId, CreatedAt DESC)
+    INCLUDE (UserId, Name, Email, Phone, Subject, Message, Language, Source);
+
+GO
+
+-- ============================================================
+-- NOTIFICATION QUEUE (SA_EMAILMASTER)
+-- ============================================================
+-- Purpose: admin schedule stats (SA_GetSchedulePendingStats)
+-- OPTIMIZED: join probe on TEMPLATEID seeks instead of scanning the
+--            send queue; STATUS + REQUESTTIME INCLUDEd so the COUNT/MAX
+--            aggregate reads from the index with no key lookup
+
+CREATE NONCLUSTERED INDEX IX_SA_EMAILMASTER_TEMPLATEID_inc
+    ON [dbo].[SA_EMAILMASTER] (TEMPLATEID)
+    INCLUDE (STATUS, REQUESTTIME);
 
 GO

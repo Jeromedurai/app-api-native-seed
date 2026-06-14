@@ -10,6 +10,7 @@ using Tenant.API.Base.Model;
 using Tenant.Query.Model.Email;
 using Tenant.Query.Repository.Email;
 using Tenant.Query.Service.Email;
+using Tenant.Query.Service.Product;
 
 namespace Tenant.Query.Controllers.Email
 {
@@ -23,22 +24,47 @@ namespace Tenant.Query.Controllers.Email
     {
         private readonly EmailService _emailService;
         private readonly NotificationDispatcherService _dispatcher;
+        private readonly NotificationWhatsAppDispatcherService _whatsAppDispatcher;
         private readonly EmailNotificationRepository _repository;
         private readonly IConfiguration _configuration;
+        private readonly ProductService _productService;
         public ILogger Logger { get; set; }
 
         public EmailController(
             EmailService emailService,
             NotificationDispatcherService dispatcher,
+            NotificationWhatsAppDispatcherService whatsAppDispatcher,
             EmailNotificationRepository repository,
             IConfiguration configuration,
+            ProductService productService,
             ILoggerFactory loggerFactory)
         {
             _emailService = emailService;
             _dispatcher = dispatcher;
+            _whatsAppDispatcher = whatsAppDispatcher;
             _repository = repository;
             _configuration = configuration;
+            _productService = productService;
             this.Logger = loggerFactory.CreateLogger<EmailController>();
+        }
+
+        /// <summary>
+        /// Shared-secret check for the worker→API dispatch endpoints (which are
+        /// AllowAnonymous so the worker can reach them without a JWT). The worker
+        /// sends header "X-Worker-Key"; it must match Notifications:WorkerKey.
+        /// If the key is not configured, the check is skipped (dev convenience) but
+        /// a warning is logged so it is not silently left open in production.
+        /// </summary>
+        private bool IsWorkerAuthorized()
+        {
+            var expected = _configuration["Notifications:WorkerKey"];
+            if (string.IsNullOrWhiteSpace(expected))
+            {
+                Logger.LogWarning("Notifications:WorkerKey is not set — dispatch endpoints are UNAUTHENTICATED.");
+                return true;
+            }
+            var provided = Request.Headers["X-Worker-Key"].ToString();
+            return string.Equals(provided, expected, System.StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -114,6 +140,10 @@ namespace Tenant.Query.Controllers.Email
         {
             try
             {
+                if (!IsWorkerAuthorized())
+                {
+                    return Unauthorized(new ApiResult { Exception = "Invalid or missing worker key." });
+                }
                 if (request == null)
                 {
                     return BadRequest(new ApiResult { Exception = "Dispatch request is required" });
@@ -129,6 +159,17 @@ namespace Tenant.Query.Controllers.Email
                 if (string.IsNullOrWhiteSpace(request.EmailSP))
                 {
                     return BadRequest(new ApiResult { Exception = "EmailSP payload is required" });
+                }
+
+                // Channel feature flag (AppSettings → appsettings.json → default ON).
+                if (!bool.TryParse(_configuration["Notifications:Email:Enabled"], out var jsonEmailOn))
+                {
+                    jsonEmailOn = true; // default ON when not in config
+                }
+                var emailOn = _productService.GetSettingBool("EMAIL_ENABLED", jsonEmailOn);
+                if (!emailOn)
+                {
+                    return Ok(new ApiResult { Data = new SendEmailResponse { Success = true, Skipped = true, Message = "Email channel is disabled." } });
                 }
 
                 var response = await _dispatcher.DispatchAsync(request);
@@ -151,6 +192,56 @@ namespace Tenant.Query.Controllers.Email
             {
                 Logger.LogError($"Error dispatching queued email: {ex.Message}");
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = "An error occurred while dispatching the queued email." });
+            }
+        
+        }
+
+        /// <summary>
+        /// Dispatch a queued WhatsApp message (worker posts SA_EMAILMASTER rows with CHANNEL = WhatsApp).
+        /// Gated by Notifications:WhatsApp:Enabled (default off): disabled → 200 Skipped (no send, no retry).
+        /// </summary>
+        [HttpPost("notification/whatsapp")]
+        [AllowAnonymous]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public async Task<IActionResult> DispatchQueuedWhatsApp([FromBody] QueuedEmailDispatchRequest request)
+        {
+            try
+            {
+                if (!IsWorkerAuthorized())
+                {
+                    return Unauthorized(new ApiResult { Exception = "Invalid or missing worker key." });
+                }
+                if (request == null)
+                {
+                    return BadRequest(new ApiResult { Exception = "Dispatch request is required" });
+                }
+                if (request.TemplateId <= 0)
+                {
+                    return BadRequest(new ApiResult { Exception = "TemplateId is required" });
+                }
+                if (request.TenantId <= 0)
+                {
+                    return BadRequest(new ApiResult { Exception = "TenantId is required" });
+                }
+                if (string.IsNullOrWhiteSpace(request.EmailSP))
+                {
+                    return BadRequest(new ApiResult { Exception = "EmailSP payload is required" });
+                }
+
+                var response = await _whatsAppDispatcher.DispatchAsync(request);
+
+                if (response.Success)
+                {
+                    return Ok(new ApiResult { Data = response });
+                }
+                return BadRequest(new ApiResult { Exception = response.Message });
+            }
+            catch (System.Exception ex)
+            {
+                Logger.LogError($"Error dispatching queued WhatsApp: {ex.Message}");
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = "An error occurred while dispatching the queued WhatsApp message." });
             }
         }
 

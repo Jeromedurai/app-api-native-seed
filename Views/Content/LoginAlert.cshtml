@@ -1,0 +1,13 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "New Sign-in";
+    ViewData["Preheader"] = "A new sign-in to your account";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">New sign-in detected</p>
+<p class="lead">Hi @name, your account was just accessed. If this was you, no action is needed.</p>
+<div class="card-inner"><table class="info-table"><tr><td class="k">When</td><td class="v">@(V("LoginTime") ?? "Just now")</td></tr><tr><td class="k">Device</td><td class="v">@(V("Device") ?? "Unknown")</td></tr></table></div>
+<p class="muted">Not you? <a href="@site/reset-password" style="color:@brand">Secure your account</a> right away.</p>

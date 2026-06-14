@@ -1,0 +1,13 @@
+@model dynamic
+@{
+    Layout = "_BrandedEmail";
+    ViewData["Title"] = "You left something behind";
+    ViewData["Preheader"] = "Your cart is waiting for you";
+    var d = Model as IDictionary<string, object>;
+    string V(string k) => d != null && d.TryGetValue(k, out var x) && x != null ? x.ToString() : null;
+    var name = V("Name") ?? V("FirstName") ?? "there"; var brand = V("BrandColor") ?? "#1e7e34"; var site = V("SiteUrl") ?? "#";
+}
+<p class="h1">🛒 You left something in your cart</p>
+<p class="lead">Hi @name, your picks are still waiting! Complete your order before they sell out.</p>
+@if(!string.IsNullOrWhiteSpace(V("ItemCount"))){<p class="muted center">@V("ItemCount") item(s) in your cart</p>}
+<div class="btn-wrap"><a class="btn" style="background:@brand" href="@site/cart">Complete Purchase</a></div>

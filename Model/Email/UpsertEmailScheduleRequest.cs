@@ -17,6 +17,18 @@ namespace Tenant.Query.Model.Email
         public byte SendBy { get; set; }
         public string Day { get; set; }
         public string Time { get; set; }
+        /// <summary>CSV of UserIds excluded from this campaign; null/empty = send to all eligible.</summary>
+        public string ExcludedUserIds { get; set; }
+        /// <summary>Per-campaign coupon code merged into the email as @Model.CouponCode.</summary>
+        public string CouponCode { get; set; }
+        /// <summary>CSV of channels for this campaign: Email / WhatsApp / Email,WhatsApp. Null = Email.</summary>
+        public string Channels { get; set; }
+        /// <summary>Admin-authored campaign content (all optional; blank → view's themed fallback).</summary>
+        public string Subject { get; set; }
+        public string Headline { get; set; }
+        public string Message { get; set; }
+        public string CtaText { get; set; }
+        public string CtaUrl { get; set; }
         public bool Active { get; set; } = true;
     }
 }
