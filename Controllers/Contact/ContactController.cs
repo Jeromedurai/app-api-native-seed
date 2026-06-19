@@ -104,6 +104,44 @@ namespace Tenant.Query.Controllers.Contact
                 });
             }
         }
+
+        /// <summary>
+        /// Admin endpoint to mark a contact-us message as viewed (read).
+        /// </summary>
+        /// <param name="id">Contact message id.</param>
+        /// <param name="viewedBy">Optional admin user id who viewed it.</param>
+        /// <param name="tenantId">Optional tenant scope.</param>
+        [Authorize]
+        [HttpPatch]
+        [Route("messages/{id:long}/viewed")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Message marked viewed")]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error")]
+        public async Task<IActionResult> MarkContactMessageViewed(
+            long id,
+            [FromQuery] long? viewedBy = null,
+            [FromQuery] long? tenantId = null)
+        {
+            try
+            {
+                var rowsAffected = await _contactService.MarkContactMessageViewed(id, viewedBy, tenantId);
+
+                return Ok(new
+                {
+                    id,
+                    isViewed = true,
+                    updated = rowsAffected > 0
+                });
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error marking contact message {Id} viewed", id);
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    message = "An error occurred while updating the message.",
+                    error = ex.Message
+                });
+            }
+        }
     }
 }
 

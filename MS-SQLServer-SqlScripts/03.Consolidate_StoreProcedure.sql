@@ -364,6 +364,10 @@ IF OBJECT_ID(N'[dbo].[SP_GET_CONTACT_MESSAGES]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_GET_CONTACT_MESSAGES];
 GO
 
+IF OBJECT_ID(N'[dbo].[SP_MARK_CONTACT_MESSAGE_VIEWED]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_MARK_CONTACT_MESSAGE_VIEWED];
+GO
+
 IF OBJECT_ID(N'[dbo].[SP_GET_ALL_REVIEWS_ADMIN]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_GET_ALL_REVIEWS_ADMIN];
 GO
@@ -529,10 +533,41 @@ BEGIN
             Message,
             Language,
             Source,
+            IsViewed,
+            ViewedAt,
+            ViewedBy,
             CreatedAt
         FROM ContactMessages
         WHERE (@TenantId IS NULL OR TenantId = @TenantId)
-        ORDER BY CreatedAt DESC;
+        ORDER BY IsViewed ASC, CreatedAt DESC;
+    END TRY
+    BEGIN CATCH
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+        DECLARE @ErrorState INT = ERROR_STATE();
+        RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+    END CATCH
+END
+GO
+
+CREATE PROCEDURE [dbo].[SP_MARK_CONTACT_MESSAGE_VIEWED]
+    @Id BIGINT,
+    @ViewedBy BIGINT = NULL,
+    @TenantId BIGINT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+        UPDATE ContactMessages
+        SET IsViewed = 1,
+            ViewedAt = GETUTCDATE(),
+            ViewedBy = @ViewedBy
+        WHERE Id = @Id
+          AND IsViewed = 0
+          AND (@TenantId IS NULL OR TenantId = @TenantId);
+
+        SELECT @@ROWCOUNT AS RowsAffected;
     END TRY
     BEGIN CATCH
         DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
@@ -9318,4 +9353,170 @@ BEGIN
       AND pr.Active   = 1
     ORDER BY pr.Rating DESC, pr.CreatedAt DESC;
 END
+GO
+
+-- =============================================
+-- BANNER STORED PROCEDURES (homepage hero / campaign banners)
+-- Separate from ProductImages SPs; does not touch product image flow.
+-- =============================================
+
+IF OBJECT_ID('dbo.SP_CREATE_BANNER', 'P') IS NOT NULL DROP PROCEDURE [dbo].[SP_CREATE_BANNER];
+GO
+CREATE PROCEDURE [dbo].[SP_CREATE_BANNER]
+    @TenantId BIGINT,
+    @Title NVARCHAR(200) = NULL,
+    @CtaText NVARCHAR(100) = NULL,
+    @CtaLink NVARCHAR(300) = NULL,
+    @ImageName NVARCHAR(255),
+    @ContentType NVARCHAR(100),
+    @FileSize BIGINT = NULL,
+    @ImageData VARBINARY(MAX),
+    @OrderBy INT = 0,
+    @StartDate DATETIME2 = NULL,
+    @EndDate DATETIME2 = NULL,
+    @Active BIT = 1,
+    @CreatedBy BIGINT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        INSERT INTO BannerImages (
+            TenantId, Title, CtaText, CtaLink, ImageName, ContentType, FileSize,
+            ImageData, OrderBy, StartDate, EndDate, Active, CreatedBy, UpdatedBy, CreatedAt, UpdatedAt
+        )
+        VALUES (
+            @TenantId, @Title, @CtaText, @CtaLink, @ImageName, @ContentType, @FileSize,
+            @ImageData, @OrderBy, @StartDate, @EndDate, @Active, @CreatedBy, @CreatedBy, GETUTCDATE(), GETUTCDATE()
+        );
+
+        DECLARE @BannerId BIGINT = SCOPE_IDENTITY();
+
+        -- Return created banner metadata (no image bytes)
+        SELECT BannerId, TenantId, Title, CtaText, CtaLink, ImageName, ContentType, FileSize,
+               OrderBy, StartDate, EndDate, Active, CreatedAt, UpdatedAt
+        FROM BannerImages
+        WHERE BannerId = @BannerId;
+    END TRY
+    BEGIN CATCH
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+        DECLARE @ErrorState INT = ERROR_STATE();
+        RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+    END CATCH
+END
+GO
+
+IF OBJECT_ID('dbo.SP_UPDATE_BANNER', 'P') IS NOT NULL DROP PROCEDURE [dbo].[SP_UPDATE_BANNER];
+GO
+CREATE PROCEDURE [dbo].[SP_UPDATE_BANNER]
+    @BannerId BIGINT,
+    @TenantId BIGINT,
+    @Title NVARCHAR(200) = NULL,
+    @CtaText NVARCHAR(100) = NULL,
+    @CtaLink NVARCHAR(300) = NULL,
+    @OrderBy INT = 0,
+    @StartDate DATETIME2 = NULL,
+    @EndDate DATETIME2 = NULL,
+    @Active BIT = 1,
+    -- Image fields are optional: when @ImageData IS NULL the existing image is kept.
+    @ImageName NVARCHAR(255) = NULL,
+    @ContentType NVARCHAR(100) = NULL,
+    @FileSize BIGINT = NULL,
+    @ImageData VARBINARY(MAX) = NULL,
+    @UpdatedBy BIGINT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        UPDATE BannerImages
+        SET Title       = @Title,
+            CtaText     = @CtaText,
+            CtaLink     = @CtaLink,
+            OrderBy     = @OrderBy,
+            StartDate   = @StartDate,
+            EndDate     = @EndDate,
+            Active      = @Active,
+            ImageName   = CASE WHEN @ImageData IS NULL THEN ImageName   ELSE @ImageName   END,
+            ContentType = CASE WHEN @ImageData IS NULL THEN ContentType ELSE @ContentType END,
+            FileSize    = CASE WHEN @ImageData IS NULL THEN FileSize    ELSE @FileSize    END,
+            ImageData   = CASE WHEN @ImageData IS NULL THEN ImageData   ELSE @ImageData   END,
+            UpdatedBy   = @UpdatedBy,
+            UpdatedAt   = GETUTCDATE()
+        WHERE BannerId = @BannerId AND TenantId = @TenantId;
+
+        SELECT BannerId, TenantId, Title, CtaText, CtaLink, ImageName, ContentType, FileSize,
+               OrderBy, StartDate, EndDate, Active, CreatedAt, UpdatedAt
+        FROM BannerImages
+        WHERE BannerId = @BannerId;
+    END TRY
+    BEGIN CATCH
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+        DECLARE @ErrorState INT = ERROR_STATE();
+        RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+    END CATCH
+END
+GO
+
+IF OBJECT_ID('dbo.SP_DELETE_BANNER', 'P') IS NOT NULL DROP PROCEDURE [dbo].[SP_DELETE_BANNER];
+GO
+CREATE PROCEDURE [dbo].[SP_DELETE_BANNER]
+    @BannerId BIGINT,
+    @TenantId BIGINT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DELETE FROM BannerImages WHERE BannerId = @BannerId AND TenantId = @TenantId;
+    SELECT @@ROWCOUNT AS ROWSAFFECTED;
+END
+GO
+
+IF OBJECT_ID('dbo.SP_GET_BANNERS_ADMIN', 'P') IS NOT NULL DROP PROCEDURE [dbo].[SP_GET_BANNERS_ADMIN];
+GO
+CREATE PROCEDURE [dbo].[SP_GET_BANNERS_ADMIN]
+    @TenantId BIGINT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    -- Admin list: all banners for tenant, no image bytes (served separately by id).
+    SELECT BannerId, TenantId, Title, CtaText, CtaLink, ImageName, ContentType, FileSize,
+           OrderBy, StartDate, EndDate, Active, CreatedAt, UpdatedAt
+    FROM BannerImages
+    WHERE TenantId = @TenantId
+    ORDER BY OrderBy ASC, BannerId ASC;
+END
+GO
+
+IF OBJECT_ID('dbo.SP_GET_ACTIVE_BANNERS', 'P') IS NOT NULL DROP PROCEDURE [dbo].[SP_GET_ACTIVE_BANNERS];
+GO
+CREATE PROCEDURE [dbo].[SP_GET_ACTIVE_BANNERS]
+    @TenantId BIGINT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    -- Public homepage: active banners whose date window includes now (null = unbounded).
+    DECLARE @Now DATETIME2 = GETUTCDATE();
+    SELECT BannerId, TenantId, Title, CtaText, CtaLink, ImageName, ContentType, FileSize,
+           OrderBy, StartDate, EndDate, Active, CreatedAt, UpdatedAt
+    FROM BannerImages
+    WHERE TenantId = @TenantId
+      AND Active = 1
+      AND (StartDate IS NULL OR StartDate <= @Now)
+      AND (EndDate   IS NULL OR EndDate   >= @Now)
+    ORDER BY OrderBy ASC, BannerId ASC;
+END
+GO
+
+IF OBJECT_ID('dbo.SP_GET_BANNER_IMAGE_BY_ID', 'P') IS NOT NULL DROP PROCEDURE [dbo].[SP_GET_BANNER_IMAGE_BY_ID];
+GO
+CREATE PROCEDURE [dbo].[SP_GET_BANNER_IMAGE_BY_ID]
+    @BannerId BIGINT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT BannerId, ImageName, ContentType, ImageData
+    FROM BannerImages
+    WHERE BannerId = @BannerId;
+END
+GO
 GO

@@ -17,6 +17,9 @@ namespace Tenant.Query.Model.Contact
         public string Message { get; set; }
         public string Language { get; set; }
         public string Source { get; set; }
+        public bool IsViewed { get; set; }
+        public DateTime? ViewedAt { get; set; }
+        public long? ViewedBy { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 }

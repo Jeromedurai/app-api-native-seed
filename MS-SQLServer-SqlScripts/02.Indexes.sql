@@ -561,7 +561,7 @@ GO
 
 CREATE NONCLUSTERED INDEX IX_ContactMessages_TenantId_CreatedAt_inc
     ON [dbo].[ContactMessages] (TenantId, CreatedAt DESC)
-    INCLUDE (UserId, Name, Email, Phone, Subject, Message, Language, Source);
+    INCLUDE (UserId, Name, Email, Phone, Subject, Message, Language, Source, IsViewed, ViewedAt, ViewedBy);
 
 GO
 

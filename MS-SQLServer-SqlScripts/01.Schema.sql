@@ -708,6 +708,39 @@ END
 GO
 
 -- ======================================
+-- BANNER TABLES (homepage hero / campaign banners)
+-- Separate from ProductImages so product image upload/display is untouched.
+-- ======================================
+
+IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'BannerImages')
+BEGIN
+    CREATE TABLE [dbo].[BannerImages] (
+        [BannerId]      BIGINT          IDENTITY(1,1)           NOT NULL,
+        [TenantId]      BIGINT                                  NOT NULL,
+        [Title]         NVARCHAR(200)                               NULL,   -- e.g. "May Summer Offer"
+        [CtaText]       NVARCHAR(100)                               NULL,   -- button label (overrides default)
+        [CtaLink]       NVARCHAR(300)                               NULL,   -- e.g. /products?hasOffer=true
+        [ImageName]     NVARCHAR(255)                           NOT NULL,
+        [ContentType]   NVARCHAR(100)                           NOT NULL,
+        [FileSize]      BIGINT                                      NULL,
+        [ImageData]     VARBINARY(MAX)                          NOT NULL,   -- landscape image bytes
+        [OrderBy]       INT             DEFAULT 0               NOT NULL,
+        [StartDate]     DATETIME2                                   NULL,   -- null = no start bound
+        [EndDate]       DATETIME2                                   NULL,   -- null = no end bound
+        [Active]        BIT             DEFAULT 1               NOT NULL,
+        [CreatedBy]     BIGINT                                      NULL,
+        [UpdatedBy]     BIGINT                                      NULL,
+        [CreatedAt]     DATETIME2       DEFAULT GETUTCDATE()    NOT NULL,
+        [UpdatedAt]     DATETIME2       DEFAULT GETUTCDATE()    NOT NULL,
+
+        CONSTRAINT PK_BannerImages PRIMARY KEY CLUSTERED ([BannerId])
+    );
+    PRINT 'Table BannerImages created successfully.';
+END
+
+GO
+
+-- ======================================
 -- SECURITY TABLES
 -- ======================================
 
@@ -792,10 +825,24 @@ BEGIN
         Message     NVARCHAR(2000)                          NOT NULL,
         Language    NVARCHAR(10)                                NULL,
         Source      NVARCHAR(100)                               NULL,
+        IsViewed    BIT             DEFAULT 0               NOT NULL,
+        ViewedAt    DATETIME2(7)                                NULL,
+        ViewedBy    BIGINT                                      NULL,
         CreatedAt   DATETIME2(7)    DEFAULT GETUTCDATE()    NOT NULL,
 
         CONSTRAINT PK_ContactMessages PRIMARY KEY CLUSTERED (Id)
     );
+END;
+
+GO
+
+-- Add read/unread columns to an existing ContactMessages table (idempotent).
+IF OBJECT_ID('dbo.ContactMessages', 'U') IS NOT NULL
+   AND COL_LENGTH('dbo.ContactMessages', 'IsViewed') IS NULL
+BEGIN
+    ALTER TABLE dbo.ContactMessages ADD IsViewed BIT NOT NULL CONSTRAINT DF_ContactMessages_IsViewed DEFAULT 0;
+    ALTER TABLE dbo.ContactMessages ADD ViewedAt DATETIME2(7) NULL;
+    ALTER TABLE dbo.ContactMessages ADD ViewedBy BIGINT NULL;
 END;
 
 GO

@@ -70,6 +70,23 @@ namespace Tenant.Query.Service.Contact
                 throw;
             }
         }
+
+        /// <summary>
+        /// Mark a contact message as viewed by an admin. Returns rows updated.
+        /// </summary>
+        public async Task<int> MarkContactMessageViewed(long id, long? viewedBy, long? tenantId)
+        {
+            try
+            {
+                Logger.LogInformation("Service: Marking contact message {Id} viewed", id);
+                return await _contactRepository.MarkContactMessageViewed(id, viewedBy, tenantId);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Service: Error marking contact message {Id} viewed", id);
+                throw;
+            }
+        }
     }
 }
 

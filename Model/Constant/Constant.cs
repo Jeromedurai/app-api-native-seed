@@ -127,9 +127,18 @@ namespace Tenant.Query.Model.Constant
             public const string SP_GET_SEARCH_SUGGESTIONS = "[dbo].[SP_GET_SEARCH_SUGGESTIONS]";
             public const string SP_CREATE_CONTACT_MESSAGE = "[dbo].[SP_CREATE_CONTACT_MESSAGE]";
             public const string SP_GET_CONTACT_MESSAGES = "[dbo].[SP_GET_CONTACT_MESSAGES]";
+            public const string SP_MARK_CONTACT_MESSAGE_VIEWED = "[dbo].[SP_MARK_CONTACT_MESSAGE_VIEWED]";
             public const string SP_USER_SOCIAL_LOGIN = "[dbo].[SP_USER_SOCIAL_LOGIN]";
             public const string SP_NOTIFY_BACK_IN_STOCK = "[dbo].[SP_NOTIFY_BACK_IN_STOCK]";
             public const string SP_GET_TOP_REVIEWS = "[dbo].[SP_GET_TOP_REVIEWS]";
+
+            // Homepage / campaign banners
+            public const string SP_CREATE_BANNER = "[dbo].[SP_CREATE_BANNER]";
+            public const string SP_UPDATE_BANNER = "[dbo].[SP_UPDATE_BANNER]";
+            public const string SP_DELETE_BANNER = "[dbo].[SP_DELETE_BANNER]";
+            public const string SP_GET_BANNERS_ADMIN = "[dbo].[SP_GET_BANNERS_ADMIN]";
+            public const string SP_GET_ACTIVE_BANNERS = "[dbo].[SP_GET_ACTIVE_BANNERS]";
+            public const string SP_GET_BANNER_IMAGE_BY_ID = "[dbo].[SP_GET_BANNER_IMAGE_BY_ID]";
 
             public const string SA_GET_EMAIL_TEMPLATE = "[dbo].[SA_GetEmailTemplate]";
             public const string SA_GET_EMAIL_TEMPLATE_BY_ID = "[dbo].[SA_GetEmailTemplateById]";

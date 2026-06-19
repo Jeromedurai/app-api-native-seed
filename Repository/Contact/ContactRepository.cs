@@ -93,8 +93,41 @@ namespace Tenant.Query.Repository.Contact
             }
         }
 
+        /// <summary>
+        /// Mark a contact message as viewed (read) by an admin.
+        /// Returns the number of rows updated (0 if already viewed or not found).
+        /// </summary>
+        public async Task<int> MarkContactMessageViewed(long id, long? viewedBy, long? tenantId)
+        {
+            try
+            {
+                Logger.LogInformation("Repository: Marking contact message {Id} viewed by {ViewedBy}", id, viewedBy);
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Constant.StoredProcedures.SP_MARK_CONTACT_MESSAGE_VIEWED,
+                    id,
+                    viewedBy ?? (object)DBNull.Value,
+                    tenantId ?? (object)DBNull.Value
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                {
+                    return 0;
+                }
+
+                var value = result.Tables[0].Rows[0]["RowsAffected"];
+                return value != null && value != DBNull.Value ? Convert.ToInt32(value) : 0;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Repository: Error marking contact message {Id} viewed", id);
+                throw;
+            }
+        }
+
         private static ContactMessageInfo MapToContactMessageInfo(DataRow row)
         {
+            var columns = row.Table.Columns;
             return new ContactMessageInfo
             {
                 Id = Convert.ToInt64(row["Id"]),
@@ -107,6 +140,9 @@ namespace Tenant.Query.Repository.Contact
                 Message = row["Message"] as string,
                 Language = row["Language"] as string,
                 Source = row["Source"] as string,
+                IsViewed = columns.Contains("IsViewed") && row["IsViewed"] != DBNull.Value && Convert.ToBoolean(row["IsViewed"]),
+                ViewedAt = columns.Contains("ViewedAt") && row["ViewedAt"] != DBNull.Value ? Convert.ToDateTime(row["ViewedAt"]) : (DateTime?)null,
+                ViewedBy = columns.Contains("ViewedBy") && row["ViewedBy"] != DBNull.Value ? Convert.ToInt64(row["ViewedBy"]) : (long?)null,
                 CreatedAt = Convert.ToDateTime(row["CreatedAt"])
             };
         }

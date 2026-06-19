@@ -181,6 +181,10 @@ namespace Tenant.Query
             services.AddScoped(typeof(Service.Coupon.CouponService), typeof(Service.Coupon.CouponService));
             services.AddScoped(typeof(Repository.Coupon.CouponRepository), typeof(Repository.Coupon.CouponRepository));
 
+            //initialize scoped instance for banner (homepage/campaign banners)
+            services.AddScoped(typeof(Service.Banner.BannerService), typeof(Service.Banner.BannerService));
+            services.AddScoped(typeof(Repository.Banner.BannerRepository), typeof(Repository.Banner.BannerRepository));
+
             // Initialize scoped instance for product reviews
             services.AddScoped(typeof(Service.Product.ProductReviewService), typeof(Service.Product.ProductReviewService));
             services.AddScoped(typeof(Repository.Product.ProductReviewRepository), typeof(Repository.Product.ProductReviewRepository));
