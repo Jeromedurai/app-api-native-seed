@@ -20,6 +20,7 @@ namespace Tenant.Query.Controllers.Coupon
     public class CouponsController : TnBaseController<CouponService>
     {
         #region Initialize
+        private const string GenericErrorMessage = "An error occurred while processing your request.";
         private readonly CouponService _couponService;
         #endregion
 
@@ -32,6 +33,53 @@ namespace Tenant.Query.Controllers.Coupon
             ILoggerFactory loggerFactory) : base(service, configuration, loggerFactory)
         {
             _couponService = service;
+        }
+
+        /// <summary>
+        /// Builds a 400 response from the current ModelState validation errors,
+        /// preserving the existing "; "-joined message format.
+        /// </summary>
+        private IActionResult ModelStateError()
+        {
+            var errors = ModelState.Values
+                .SelectMany(v => v.Errors)
+                .Select(e => e.ErrorMessage);
+            return BadRequest(new ApiResult
+            {
+                Exception = string.Join("; ", errors)
+            });
+        }
+
+        /// <summary>
+        /// Best-effort tenant id from JWT claims. Reads the claim-name variations used across
+        /// this codebase (canonical names live in a compiled DLL). Null when no readable claim.
+        /// </summary>
+        private long? GetTenantIdFromJwt()
+        {
+            var claim = User?.FindFirst("tenant_id")?.Value
+                ?? User?.FindFirst("tenantId")?.Value;
+            return long.TryParse(claim, out var id) ? id : (long?)null;
+        }
+
+        /// <summary>
+        /// Enforces that a client-supplied tenantId matches the authenticated caller's JWT tenant.
+        /// Returns a 403 result to short-circuit on mismatch, or null when access is allowed.
+        /// Defensive: if the token carries no readable tenant claim, the request proceeds (falls
+        /// back to the supplied id) so authenticated calls never hard-fail on claim-name
+        /// uncertainty. Callers must already require [Authorize].
+        /// </summary>
+        private IActionResult ValidateTenantAccess(long tenantId)
+        {
+            var tokenTenantId = GetTenantIdFromJwt();
+            if (tokenTenantId.HasValue && tokenTenantId.Value != tenantId)
+            {
+                Logger.LogWarning(
+                    "Tenant access denied: token tenant {TokenTenantId} attempted to act on tenant {RequestTenantId}",
+                    tokenTenantId.Value, tenantId);
+                return Forbid(); // 403 — caller does not own this tenant
+            }
+
+            return null;
         }
 
         #region Public Endpoints
@@ -60,21 +108,12 @@ namespace Tenant.Query.Controllers.Coupon
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult
-                    {
-                        Exception = string.Join("; ", errors)
-                    });
+                    return ModelStateError();
                 }
 
-                Logger.LogInformation($"Controller: Validating coupon - Code: {request.Code}, Amount: {request.Amount}, UserId: {request.UserId?.ToString() ?? "NULL"}, TenantId: {request.TenantId}");
+                Logger.LogInformation("Validating coupon {Code} for tenant {TenantId}", request.Code, request.TenantId);
 
                 var response = await _couponService.ValidateCoupon(request);
-                
-                Logger.LogInformation($"Controller: Validation result - Valid: {response.Valid}, Message: {response.Message}");
 
                 // Always return OK with the validation result, even if validation failed
                 // The frontend will check the Valid property to determine success/failure
@@ -85,10 +124,10 @@ namespace Tenant.Query.Controllers.Coupon
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error validating coupon: {ex.Message}", ex);
+                Logger.LogError(ex, "Error validating coupon");
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -121,15 +160,11 @@ namespace Tenant.Query.Controllers.Coupon
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult
-                    {
-                        Exception = string.Join("; ", errors)
-                    });
+                    return ModelStateError();
                 }
+
+                var accessError = ValidateTenantAccess(request.TenantId);
+                if (accessError != null) return accessError;
 
                 var coupon = await _couponService.CreateCoupon(request);
 
@@ -140,7 +175,7 @@ namespace Tenant.Query.Controllers.Coupon
             }
             catch (ArgumentException ex)
             {
-                Logger.LogWarning($"Invalid argument: {ex.Message}");
+                Logger.LogWarning(ex, "Invalid argument creating coupon");
                 return BadRequest(new ApiResult
                 {
                     Exception = ex.Message
@@ -148,10 +183,10 @@ namespace Tenant.Query.Controllers.Coupon
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error creating coupon: {ex.Message}", ex);
+                Logger.LogError(ex, "Error creating coupon");
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -178,10 +213,10 @@ namespace Tenant.Query.Controllers.Coupon
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error getting coupons: {ex.Message}", ex);
+                Logger.LogError(ex, "Error getting coupons for tenant {TenantId}", tenantId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -212,7 +247,7 @@ namespace Tenant.Query.Controllers.Coupon
             }
             catch (KeyNotFoundException ex)
             {
-                Logger.LogWarning($"Coupon not found: {ex.Message}");
+                Logger.LogWarning(ex, "Coupon {CouponId} not found", couponId);
                 return NotFound(new ApiResult
                 {
                     Exception = ex.Message
@@ -220,10 +255,10 @@ namespace Tenant.Query.Controllers.Coupon
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error getting coupon: {ex.Message}", ex);
+                Logger.LogError(ex, "Error getting coupon {CouponId}", couponId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -255,6 +290,9 @@ namespace Tenant.Query.Controllers.Coupon
                     });
                 }
 
+                var accessError = ValidateTenantAccess(request.TenantId);
+                if (accessError != null) return accessError;
+
                 request.CouponId = couponId;
                 var coupon = await _couponService.UpdateCoupon(request);
 
@@ -265,7 +303,7 @@ namespace Tenant.Query.Controllers.Coupon
             }
             catch (ArgumentException ex)
             {
-                Logger.LogWarning($"Invalid argument: {ex.Message}");
+                Logger.LogWarning(ex, "Invalid argument updating coupon {CouponId}", couponId);
                 return BadRequest(new ApiResult
                 {
                     Exception = ex.Message
@@ -273,7 +311,7 @@ namespace Tenant.Query.Controllers.Coupon
             }
             catch (KeyNotFoundException ex)
             {
-                Logger.LogWarning($"Coupon not found: {ex.Message}");
+                Logger.LogWarning(ex, "Coupon {CouponId} not found", couponId);
                 return NotFound(new ApiResult
                 {
                     Exception = ex.Message
@@ -281,10 +319,10 @@ namespace Tenant.Query.Controllers.Coupon
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error updating coupon: {ex.Message}", ex);
+                Logger.LogError(ex, "Error updating coupon {CouponId}", couponId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -307,14 +345,17 @@ namespace Tenant.Query.Controllers.Coupon
         {
             try
             {
+                var accessError = ValidateTenantAccess(tenantId);
+                if (accessError != null) return accessError;
+
                 var result = await _couponService.DeleteCoupon(couponId, tenantId);
 
                 if (!result)
                 {
-                return NotFound(new ApiResult
-                {
-                    Exception = "Coupon not found"
-                });
+                    return NotFound(new ApiResult
+                    {
+                        Exception = "Coupon not found"
+                    });
                 }
 
                 return Ok(new ApiResult
@@ -324,10 +365,10 @@ namespace Tenant.Query.Controllers.Coupon
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error deleting coupon: {ex.Message}", ex);
+                Logger.LogError(ex, "Error deleting coupon {CouponId}", couponId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -361,10 +402,10 @@ namespace Tenant.Query.Controllers.Coupon
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error getting coupon usage: {ex.Message}", ex);
+                Logger.LogError(ex, "Error getting coupon usage {CouponId}", couponId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }

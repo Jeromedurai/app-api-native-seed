@@ -3544,10 +3544,20 @@ namespace Tenant.Query.Service.Product
                 // Compute HMAC SHA256
                 using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
                 var computedHash = hmac.ComputeHash(Encoding.UTF8.GetBytes(signatureData));
-                var computedSignature = BitConverter.ToString(computedHash).Replace("-", "").ToLowerInvariant();
 
-                // Compare signatures
-                return string.Equals(computedSignature, signature.ToLowerInvariant(), StringComparison.OrdinalIgnoreCase);
+                // Constant-time compare to avoid timing side-channels. Razorpay signatures are lowercase hex.
+                byte[] providedHash;
+                try
+                {
+                    providedHash = Convert.FromHexString(signature);
+                }
+                catch (FormatException)
+                {
+                    // Malformed/odd-length hex — treat as invalid (same outcome as a mismatch).
+                    return false;
+                }
+
+                return CryptographicOperations.FixedTimeEquals(computedHash, providedHash);
             }
             catch (Exception ex)
             {
@@ -3577,7 +3587,9 @@ namespace Tenant.Query.Service.Product
                 var webhookSecret = _configuration["Razorpay:WebhookSecret"];
                 if (string.IsNullOrEmpty(webhookSecret))
                 {
-                    logger.LogWarning("Razorpay:WebhookSecret is not configured — webhook signature verification skipped");
+                    // Fail closed: without the secret we cannot verify authenticity, so do not process the event.
+                    logger.LogError("Razorpay:WebhookSecret is not configured — rejecting webhook (cannot verify signature)");
+                    return new Model.Order.RazorpayWebhookResult { Processed = false, Message = "Webhook secret not configured" };
                 }
                 else
                 {
@@ -3589,9 +3601,20 @@ namespace Tenant.Query.Service.Product
 
                     using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(webhookSecret));
                     var computedHash = hmac.ComputeHash(Encoding.UTF8.GetBytes(rawBody));
-                    var computedSignature = BitConverter.ToString(computedHash).Replace("-", "").ToLowerInvariant();
 
-                    if (!string.Equals(computedSignature, razorpaySignature.ToLowerInvariant(), StringComparison.OrdinalIgnoreCase))
+                    // Constant-time compare to avoid timing side-channels. Razorpay signatures are lowercase hex.
+                    byte[] providedHash;
+                    try
+                    {
+                        providedHash = Convert.FromHexString(razorpaySignature);
+                    }
+                    catch (FormatException)
+                    {
+                        logger.LogWarning($"Razorpay webhook signature is not valid hex. EventId: {payload?.EventId}");
+                        return new Model.Order.RazorpayWebhookResult { Processed = false, Message = "Signature verification failed" };
+                    }
+
+                    if (!CryptographicOperations.FixedTimeEquals(computedHash, providedHash))
                     {
                         logger.LogWarning($"Razorpay webhook signature mismatch. EventId: {payload?.EventId}");
                         return new Model.Order.RazorpayWebhookResult { Processed = false, Message = "Signature verification failed" };

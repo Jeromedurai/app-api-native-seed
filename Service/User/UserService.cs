@@ -1,6 +1,11 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Webp;
+using SixLabors.ImageSharp.Processing;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Tenant.API.Base.Repository;
@@ -329,6 +334,91 @@ namespace Tenant.Query.Service.User
                 this.Logger.LogError($"Profile update error for user {request?.UserId}: {ex.Message}");
                 throw new System.Exception("An error occurred while updating the profile.", ex);
             }
+        }
+
+        private const long MaxProfileImageBytes = 5 * 1024 * 1024; // 5MB
+        private const int ProfileImageSize = 256; // square avatar
+        private static readonly string[] AllowedImageContentTypes =
+            { "image/jpeg", "image/jpg", "image/png", "image/webp" };
+
+        /// <summary>
+        /// Validate, resize (square 256x256 WebP) and store a user's profile image.
+        /// Returns the relative URL the frontend should use to render the avatar.
+        /// </summary>
+        public async Task<string> UpdateProfileImageAsync(Model.User.ProfileImageUploadDto dto)
+        {
+            if (dto?.File == null || dto.File.Length == 0)
+                throw new ArgumentException("An image file is required.");
+
+            if (dto.UserId <= 0)
+                throw new ArgumentException("A valid user id is required.");
+
+            if (dto.File.Length > MaxProfileImageBytes)
+                throw new ArgumentException("Image must be 5MB or smaller.");
+
+            var contentType = dto.File.ContentType?.ToLowerInvariant() ?? string.Empty;
+            if (!AllowedImageContentTypes.Contains(contentType))
+                throw new ArgumentException("Only JPG, PNG or WebP images are allowed.");
+
+            try
+            {
+                byte[] originalBytes;
+                using (var ms = new MemoryStream())
+                {
+                    await dto.File.CopyToAsync(ms);
+                    originalBytes = ms.ToArray();
+                }
+
+                // Square-crop + resize to a small WebP avatar.
+                var processed = await ResizeToSquareWebpAsync(originalBytes, ProfileImageSize);
+
+                // Serve URL the frontend renders via <img src>; cache-busted by the caller.
+                var profilePictureUrl = $"/api/user/auth/profile-image/{dto.UserId}";
+
+                var rows = await this.UserRepository.UpdateProfileImage(
+                    dto.UserId, dto.TenantId, processed, "image/webp", profilePictureUrl);
+
+                if (rows == 0)
+                    throw new KeyNotFoundException("User not found or inactive.");
+
+                this.Logger.LogInformation($"Profile image updated for user {dto.UserId}");
+                return profilePictureUrl;
+            }
+            catch (ArgumentException) { throw; }
+            catch (KeyNotFoundException) { throw; }
+            catch (System.Exception ex)
+            {
+                this.Logger.LogError($"Profile image update error for user {dto.UserId}: {ex.Message}");
+                throw new System.Exception("An error occurred while updating the profile image.", ex);
+            }
+        }
+
+        /// <summary>
+        /// Read a user's stored profile image bytes for the serve endpoint. Null when none.
+        /// </summary>
+        public Task<Model.User.ProfileImageData> GetProfileImageAsync(long userId, long? tenantId)
+        {
+            return this.UserRepository.GetProfileImage(userId, tenantId);
+        }
+
+        private static async Task<byte[]> ResizeToSquareWebpAsync(byte[] imageData, int size)
+        {
+            using var imageStream = new MemoryStream(imageData);
+            using var image = await Image.LoadAsync(imageStream);
+
+            image.Mutate(x => x.Resize(new ResizeOptions
+            {
+                Size = new Size(size, size),
+                Mode = ResizeMode.Crop // square crop, no distortion
+            }));
+
+            using var resultStream = new MemoryStream();
+            await image.SaveAsync(resultStream, new WebpEncoder
+            {
+                Quality = 80,
+                Method = WebpEncodingMethod.Default
+            });
+            return resultStream.ToArray();
         }
 
         /// <summary>

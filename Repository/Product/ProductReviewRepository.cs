@@ -148,16 +148,17 @@ namespace Tenant.Query.Repository.Product
         /// <summary>
         /// Update a product review
         /// </summary>
-        public async Task<ProductReviewResponse> UpdateReview(UpdateProductReviewRequest request, long userId)
+        public async Task<ProductReviewResponse> UpdateReview(UpdateProductReviewRequest request, long userId, long tenantId)
         {
             try
             {
-                this.Logger.LogInformation($"Repository: Updating review {request.ReviewId} by user {userId}");
+                this.Logger.LogInformation($"Repository: Updating review {request.ReviewId} by user {userId} (tenant {tenantId})");
 
                 var result = await Task.Run(() => _dataAccess.ExecuteDataset(
                     Constant.StoredProcedures.SP_UPDATE_PRODUCT_REVIEW,
                     request.ReviewId,
                     userId,
+                    tenantId,
                     request.Rating ?? (object)DBNull.Value,
                     request.ReviewTitle ?? (object)DBNull.Value,
                     request.ReviewText ?? (object)DBNull.Value
@@ -180,16 +181,17 @@ namespace Tenant.Query.Repository.Product
         /// <summary>
         /// Delete a product review (soft delete)
         /// </summary>
-        public async Task<bool> DeleteReview(long reviewId, long userId)
+        public async Task<bool> DeleteReview(long reviewId, long userId, long tenantId)
         {
             try
             {
-                this.Logger.LogInformation($"Repository: Deleting review {reviewId} by user {userId}");
+                this.Logger.LogInformation($"Repository: Deleting review {reviewId} by user {userId} (tenant {tenantId})");
 
                 await Task.Run(() => _dataAccess.ExecuteDataset(
                     Constant.StoredProcedures.SP_DELETE_PRODUCT_REVIEW,
                     reviewId,
-                    userId
+                    userId,
+                    tenantId
                 ));
 
                 return true;

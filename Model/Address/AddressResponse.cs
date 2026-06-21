@@ -35,6 +35,9 @@ namespace Tenant.Query.Model.Address
         [JsonProperty("country")]
         public string Country { get; set; }
 
+        [JsonProperty("phone")]
+        public string Phone { get; set; }
+
         [JsonProperty("isDefault")]
         public bool IsDefault { get; set; }
 

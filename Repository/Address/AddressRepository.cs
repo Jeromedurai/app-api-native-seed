@@ -56,6 +56,7 @@ namespace Tenant.Query.Repository.Address
                             State = row["State"].ToString(),
                             PostalCode = row["PostalCode"].ToString(),
                             Country = row["Country"].ToString(),
+                            Phone = row.Table.Columns.Contains("Phone") && row["Phone"] != DBNull.Value ? row["Phone"].ToString() : null,
                             IsDefault = Convert.ToBoolean(row["IsDefault"]),
                             Active = Convert.ToBoolean(row["Active"]),
                             CreatedAt = Convert.ToDateTime(row["CreatedAt"]),
@@ -104,6 +105,7 @@ namespace Tenant.Query.Repository.Address
                     State = row["State"].ToString(),
                     PostalCode = row["PostalCode"].ToString(),
                     Country = row["Country"].ToString(),
+                    Phone = row.Table.Columns.Contains("Phone") && row["Phone"] != DBNull.Value ? row["Phone"].ToString() : null,
                     IsDefault = Convert.ToBoolean(row["IsDefault"]),
                     Active = Convert.ToBoolean(row["Active"]),
                     CreatedAt = Convert.ToDateTime(row["CreatedAt"]),
@@ -137,6 +139,7 @@ namespace Tenant.Query.Repository.Address
                     request.PostalCode,
                     request.Country ?? "IN",
                     request.IsDefault ? 1 : 0,
+                    request.Phone ?? (object)DBNull.Value,  // @Phone (must stay before the OUTPUT arg — SP binds positionally)
                     DBNull.Value  // @AddressId OUTPUT - will be auto-discovered
                 );
 
@@ -179,7 +182,8 @@ namespace Tenant.Query.Repository.Address
                     request.PostalCode ?? (object)DBNull.Value,
                     request.Country ?? (object)DBNull.Value,
                     request.IsDefault.HasValue ? (object)(request.IsDefault.Value ? 1 : 0) : DBNull.Value,
-                    request.Active.HasValue ? (object)(request.Active.Value ? 1 : 0) : DBNull.Value
+                    request.Active.HasValue ? (object)(request.Active.Value ? 1 : 0) : DBNull.Value,
+                    request.Phone ?? (object)DBNull.Value  // @Phone (appended last to match SP param order)
                 ));
 
                 return await GetAddressById(request.AddressId, request.UserId);

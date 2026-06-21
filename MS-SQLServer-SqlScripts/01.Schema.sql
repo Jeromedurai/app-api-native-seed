@@ -6,7 +6,9 @@ GO
 -- Order matters: child tables before parent tables (FK dependencies)
 -- ======================================
 
-IF OBJECT_ID('Users',               'U') IS NOT NULL DROP TABLE Users;
+-- NOTE: Users is dropped LAST (see below) — child tables ProductWishList,
+-- PasswordResetOTPs and LoginOTPs hold FOREIGN KEYs to Users(UserId) and must
+-- be dropped before the parent, or DROP TABLE Users fails (Msg 3726).
 IF OBJECT_ID('UserActivityLog',     'U') IS NOT NULL DROP TABLE UserActivityLog;
 IF OBJECT_ID('UserAddresses',       'U') IS NOT NULL DROP TABLE UserAddresses;
 IF OBJECT_ID('OrderTracking',       'U') IS NOT NULL DROP TABLE OrderTracking;
@@ -31,6 +33,9 @@ IF OBJECT_ID('ShippingRates',       'U') IS NOT NULL DROP TABLE ShippingRates;
 IF OBJECT_ID('States',              'U') IS NOT NULL DROP TABLE States;
 IF OBJECT_ID('PasswordResetOTPs',   'U') IS NOT NULL DROP TABLE PasswordResetOTPs;
 IF OBJECT_ID('LoginOTPs',           'U') IS NOT NULL DROP TABLE LoginOTPs;
+
+-- Parent table dropped last (after all FK-holding child tables above)
+IF OBJECT_ID('Users',               'U') IS NOT NULL DROP TABLE Users;
 
 -- Unused / future tables (commented out):
 -- IF OBJECT_ID('ProductCategories',       'U') IS NOT NULL DROP TABLE ProductCategories;
@@ -98,11 +103,18 @@ CREATE TABLE Users (
     RememberMeExpiry        DATETIME2(7)                                    NULL,
     AgreeToTerms            BIT             DEFAULT 0                   NOT NULL,
     TermsAcceptedAt         DATETIME2(7)                                    NULL,
+    -- Profile image (bytes stored in-row; ProfilePicture above holds the serve URL)
+    ProfileImageData        VARBINARY(MAX)                                  NULL,
+    ProfileImageContentType NVARCHAR(100)                                   NULL,
+    ProfileImageUpdatedAt   DATETIME2(7)                                    NULL,
 
     CONSTRAINT PK_Users PRIMARY KEY CLUSTERED (UserId)
 );
 
 GO
+
+-- NOTE: For an EXISTING database, profile-image columns are added by
+-- 99.Migrations.sql (this file drops & recreates Users — do not run it on live data).
 
 -- Roles — user role definitions and hierarchy
 CREATE TABLE Roles (
@@ -317,9 +329,7 @@ CREATE TABLE ProductWishList (
     Active      BIT             DEFAULT 1               NOT NULL,
     CreatedAt   DATETIME2(7)    DEFAULT GETUTCDATE()    NOT NULL,
     UpdatedAt   DATETIME2(7)    DEFAULT GETUTCDATE()    NOT NULL,
-
-    CONSTRAINT PK_ProductWishList     PRIMARY KEY CLUSTERED (WishListId),
-    CONSTRAINT FK_ProductWishList_Users    FOREIGN KEY (UserId)    REFERENCES Users(UserId),
+    
     CONSTRAINT FK_ProductWishList_Products FOREIGN KEY (ProductId) REFERENCES Products(ProductId) ON DELETE CASCADE,
     CONSTRAINT UQ_ProductWishList_UserProduct UNIQUE (UserId, ProductId)
 );
@@ -509,6 +519,7 @@ CREATE TABLE UserAddresses (
     State       NVARCHAR(100)                           NOT NULL,
     PostalCode  NVARCHAR(20)                            NOT NULL,
     Country     NVARCHAR(100)                           NOT NULL,
+    Phone       NVARCHAR(20)                            NULL,      -- delivery contact (overrides profile phone at checkout)
     IsDefault   BIT             DEFAULT 0               NOT NULL,
     Active      BIT             DEFAULT 1               NOT NULL,
     CreatedAt   DATETIME2(7)    DEFAULT GETUTCDATE()    NOT NULL,
@@ -517,6 +528,14 @@ CREATE TABLE UserAddresses (
     CONSTRAINT PK_UserAddresses PRIMARY KEY CLUSTERED (AddressId)
 );
 
+GO
+
+-- Idempotent migration for existing installs: add Phone if the table predates this column.
+IF NOT EXISTS (
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID('dbo.UserAddresses') AND name = 'Phone'
+)
+    ALTER TABLE dbo.UserAddresses ADD Phone NVARCHAR(20) NULL;
 GO
 
 -- ======================================
@@ -758,8 +777,7 @@ CREATE TABLE [dbo].[PasswordResetOTPs] (
     IpAddress   NVARCHAR(45)                                NULL,
     UserAgent   NVARCHAR(500)                               NULL,
 
-    CONSTRAINT PK_PasswordResetOTPs         PRIMARY KEY CLUSTERED (OtpId),
-    CONSTRAINT FK_PasswordResetOTPs_Users   FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE
+    CONSTRAINT PK_PasswordResetOTPs         PRIMARY KEY CLUSTERED (OtpId)
 );
 
 GO
@@ -778,8 +796,7 @@ CREATE TABLE [dbo].[LoginOTPs] (
     IpAddress   NVARCHAR(45)                                NULL,
     UserAgent   NVARCHAR(500)                               NULL,
 
-    CONSTRAINT PK_LoginOTPs         PRIMARY KEY CLUSTERED (OtpId),
-    CONSTRAINT FK_LoginOTPs_Users   FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE
+    CONSTRAINT PK_LoginOTPs         PRIMARY KEY CLUSTERED (OtpId)
 );
 
 GO
@@ -836,16 +853,8 @@ END;
 
 GO
 
--- Add read/unread columns to an existing ContactMessages table (idempotent).
-IF OBJECT_ID('dbo.ContactMessages', 'U') IS NOT NULL
-   AND COL_LENGTH('dbo.ContactMessages', 'IsViewed') IS NULL
-BEGIN
-    ALTER TABLE dbo.ContactMessages ADD IsViewed BIT NOT NULL CONSTRAINT DF_ContactMessages_IsViewed DEFAULT 0;
-    ALTER TABLE dbo.ContactMessages ADD ViewedAt DATETIME2(7) NULL;
-    ALTER TABLE dbo.ContactMessages ADD ViewedBy BIGINT NULL;
-END;
-
-GO
+-- NOTE: For an EXISTING database, the read/unread columns are added by
+-- 99.Migrations.sql (this file drops & recreates ContactMessages).
 
 -- ======================================
 -- NOTE: All non-inline indexes are defined in 02.Indexes.sql

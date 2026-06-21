@@ -23,6 +23,7 @@ namespace Tenant.Query.Controllers.Banner
     public class BannersController : TnBaseController<BannerService>
     {
         private const long MaxFileSize = 10 * 1024 * 1024;
+        private const string GenericErrorMessage = "An error occurred while processing your request.";
         private readonly BannerService _bannerService;
 
         public BannersController(
@@ -48,8 +49,8 @@ namespace Tenant.Query.Controllers.Banner
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error getting active banners: {ex.Message}", ex);
-                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+                Logger.LogError(ex, "Error getting active banners for tenant {TenantId}", tenantId);
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = GenericErrorMessage });
             }
         }
 
@@ -67,8 +68,8 @@ namespace Tenant.Query.Controllers.Banner
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error serving banner image {bannerId}: {ex.Message}", ex);
-                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+                Logger.LogError(ex, "Error serving banner image {BannerId}", bannerId);
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = GenericErrorMessage });
             }
         }
 
@@ -82,6 +83,9 @@ namespace Tenant.Query.Controllers.Banner
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
         public async Task<IActionResult> GetBanners([FromQuery] long tenantId)
         {
+            var tenantError = ValidateTenant(tenantId);
+            if (tenantError != null) return tenantError;
+
             try
             {
                 var data = await _bannerService.GetBannersAdmin(tenantId);
@@ -89,8 +93,8 @@ namespace Tenant.Query.Controllers.Banner
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error getting banners: {ex.Message}", ex);
-                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+                Logger.LogError(ex, "Error getting banners for tenant {TenantId}", tenantId);
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = GenericErrorMessage });
             }
         }
 
@@ -103,6 +107,9 @@ namespace Tenant.Query.Controllers.Banner
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         public async Task<IActionResult> CreateBanner([FromRoute] long tenantId, [FromForm] CreateBannerRequest request)
         {
+            var tenantError = ValidateTenant(tenantId);
+            if (tenantError != null) return tenantError;
+
             try
             {
                 if (request == null) return BadRequest(new ApiResult { Exception = "Request data is missing" });
@@ -113,10 +120,14 @@ namespace Tenant.Query.Controllers.Banner
             {
                 return BadRequest(new ApiResult { Exception = ex.Message });
             }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResult { Exception = ex.Message });
+            }
             catch (Exception ex)
             {
-                Logger.LogError($"Error creating banner: {ex.Message}", ex);
-                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+                Logger.LogError(ex, "Error creating banner for tenant {TenantId}", tenantId);
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = GenericErrorMessage });
             }
         }
 
@@ -130,6 +141,9 @@ namespace Tenant.Query.Controllers.Banner
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         public async Task<IActionResult> UpdateBanner([FromRoute] long bannerId, [FromRoute] long tenantId, [FromForm] UpdateBannerRequest request)
         {
+            var tenantError = ValidateTenant(tenantId);
+            if (tenantError != null) return tenantError;
+
             try
             {
                 if (request == null) return BadRequest(new ApiResult { Exception = "Request data is missing" });
@@ -146,8 +160,8 @@ namespace Tenant.Query.Controllers.Banner
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error updating banner {bannerId}: {ex.Message}", ex);
-                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+                Logger.LogError(ex, "Error updating banner {BannerId} for tenant {TenantId}", bannerId, tenantId);
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = GenericErrorMessage });
             }
         }
 
@@ -157,6 +171,9 @@ namespace Tenant.Query.Controllers.Banner
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
         public async Task<IActionResult> DeleteBanner([FromRoute] long bannerId, [FromRoute] long tenantId)
         {
+            var tenantError = ValidateTenant(tenantId);
+            if (tenantError != null) return tenantError;
+
             try
             {
                 var ok = await _bannerService.DeleteBanner(bannerId, tenantId);
@@ -165,8 +182,8 @@ namespace Tenant.Query.Controllers.Banner
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error deleting banner {bannerId}: {ex.Message}", ex);
-                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
+                Logger.LogError(ex, "Error deleting banner {BannerId} for tenant {TenantId}", bannerId, tenantId);
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = GenericErrorMessage });
             }
         }
 
@@ -179,6 +196,28 @@ namespace Tenant.Query.Controllers.Banner
                 ?? User?.FindFirst("userId")?.Value
                 ?? User?.FindFirst("sub")?.Value;
             return long.TryParse(claim, out var id) ? id : (long?)null;
+        }
+
+        /// <summary>
+        /// Validate that the route/query tenantId is positive AND matches the caller's tenant claim.
+        /// Returns an error <see cref="IActionResult"/> to short-circuit, or null when authorized.
+        /// Uses the same claim reads as ProductsController (the proven, working tenant check).
+        /// </summary>
+        private IActionResult ValidateTenant(long tenantId)
+        {
+            if (tenantId <= 0)
+            {
+                return BadRequest(new ApiResult { Exception = "A valid tenantId is required." });
+            }
+
+            var tokenTenant = User?.FindFirst("tenant_id")?.Value
+                ?? User?.FindFirst("tenantId")?.Value;
+            if (string.IsNullOrEmpty(tokenTenant) || tokenTenant != tenantId.ToString())
+            {
+                return Forbid(); // 403 — caller does not own this tenant
+            }
+
+            return null;
         }
     }
 }

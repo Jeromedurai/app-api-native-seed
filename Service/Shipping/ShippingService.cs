@@ -132,6 +132,107 @@ namespace Tenant.Query.Service.Shipping
             }
         }
 
+        #region Shipping Rates (Admin CRUD)
+
+        /// <summary>
+        /// Get all shipping rate rows for a tenant.
+        /// </summary>
+        public async Task<List<ShippingRateResponse>> GetShippingRates(int tenantId)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Service: Getting shipping rates for tenant: {tenantId}");
+                return await _shippingRepository.GetShippingRates(tenantId);
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError(ex, $"Service: Error getting shipping rates");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Insert or update a shipping rate row after validating its fields.
+        /// </summary>
+        public async Task<ShippingRateResponse> UpsertShippingRate(UpsertShippingRateRequest request)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Service: Upserting shipping rate {request.ShippingRateId} for tenant: {request.TenantId}");
+
+                ValidateRate(request);
+
+                return await _shippingRepository.UpsertShippingRate(request);
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError(ex, $"Service: Error upserting shipping rate");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Delete a shipping rate row.
+        /// </summary>
+        public async Task<int> DeleteShippingRate(long shippingRateId, int tenantId)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Service: Deleting shipping rate {shippingRateId} for tenant: {tenantId}");
+                return await _shippingRepository.DeleteShippingRate(shippingRateId, tenantId);
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError(ex, $"Service: Error deleting shipping rate");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Activate / deactivate a shipping rate row.
+        /// </summary>
+        public async Task<int> SetShippingRateActive(long shippingRateId, int tenantId, bool active)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Service: Setting shipping rate {shippingRateId} active={active} for tenant: {tenantId}");
+                return await _shippingRepository.SetShippingRateActive(shippingRateId, tenantId, active);
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError(ex, $"Service: Error setting shipping rate active state");
+                throw;
+            }
+        }
+
+        // Same guards the calculate endpoints use, so the editor can only persist
+        // ProductType/CourierType values the checkout calculation actually supports.
+        private static void ValidateRate(UpsertShippingRateRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.ProductType))
+                throw new ArgumentException("Product type is required");
+
+            if (request.ProductType != "Seed" && request.ProductType != "Plant")
+                throw new ArgumentException("Product type must be 'Seed' or 'Plant'");
+
+            if (string.IsNullOrWhiteSpace(request.CourierType))
+                throw new ArgumentException("Courier type is required");
+
+            if (request.CourierType != "Postal" && request.CourierType != "Other")
+                throw new ArgumentException("Courier type must be 'Postal' or 'Other'");
+
+            if (request.BaseCharge < 0 || request.PerUnitCharge < 0 || request.MinCharge < 0)
+                throw new ArgumentException("Charges must be non-negative");
+
+            if (request.MaxCharge.HasValue && request.MaxCharge.Value < request.MinCharge)
+                throw new ArgumentException("Max charge cannot be less than min charge");
+
+            if (request.FreeShippingThreshold.HasValue && request.FreeShippingThreshold.Value < 0)
+                throw new ArgumentException("Free shipping threshold must be non-negative");
+        }
+
+        #endregion
+
         #endregion
     }
 }

@@ -1,4 +1,15 @@
 USE himalaya_db
+GO
+
+-- Ensure UserAddresses.Phone exists before any address proc below references it.
+-- Idempotent: safe to re-run, and makes this script self-sufficient even if
+-- 01.Schema.sql's migration has not been applied to this database yet.
+IF NOT EXISTS (
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID('dbo.UserAddresses') AND name = 'Phone'
+)
+    ALTER TABLE dbo.UserAddresses ADD Phone NVARCHAR(20) NULL;
+GO
 
 IF OBJECT_ID(N'[dbo].[SP_USER_LOGOUT]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_USER_LOGOUT];
@@ -70,6 +81,14 @@ GO
 
 IF OBJECT_ID(N'[dbo].[SP_UPDATE_USER_PROFILE]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_UPDATE_USER_PROFILE];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_UPDATE_USER_PROFILE_IMAGE]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_UPDATE_USER_PROFILE_IMAGE];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_GET_USER_PROFILE_IMAGE]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_GET_USER_PROFILE_IMAGE];
 GO
 
 IF OBJECT_ID(N'[dbo].[SP_USER_LOGIN]', N'P') IS NOT NULL
@@ -260,6 +279,22 @@ IF OBJECT_ID(N'[dbo].[SP_CALCULATE_MIXED_SHIPPING]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_CALCULATE_MIXED_SHIPPING];
 GO
 
+IF OBJECT_ID(N'[dbo].[SP_GET_SHIPPING_RATES]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_GET_SHIPPING_RATES];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_UPSERT_SHIPPING_RATE]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_UPSERT_SHIPPING_RATE];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_DELETE_SHIPPING_RATE]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_DELETE_SHIPPING_RATE];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_SET_SHIPPING_RATE_ACTIVE]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_SET_SHIPPING_RATE_ACTIVE];
+GO
+
 IF OBJECT_ID(N'[dbo].[SP_CREATE_PRODUCT_REVIEW]', N'P') IS NOT NULL
 DROP PROCEDURE [dbo].[SP_CREATE_PRODUCT_REVIEW];
 GO
@@ -352,8 +387,16 @@ IF OBJECT_ID(N'[dbo].[SP_MARK_REVIEW_HELPFUL]', N'P') IS NOT NULL
 	DROP PROCEDURE [dbo].[SP_MARK_REVIEW_HELPFUL];
 GO
 
-IF OBJECT_ID(N'[dbo].[AppSettings]', N'P') IS NOT NULL
-	DROP PROCEDURE [dbo].[AppSettings];
+-- NOTE: AppSettings is a TABLE (created later with an existence guard), not a
+-- procedure. The previous "DROP PROCEDURE [dbo].[AppSettings]" guard here was a
+-- no-op typo and has been removed. The AppSettings stored procedures are dropped
+-- by name below.
+IF OBJECT_ID(N'[dbo].[SP_GET_APP_SETTINGS]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_GET_APP_SETTINGS];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_UPSERT_APP_SETTING]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_UPSERT_APP_SETTING];
 GO
 
 IF OBJECT_ID(N'[dbo].[SP_CREATE_CONTACT_MESSAGE]', N'P') IS NOT NULL
@@ -388,6 +431,30 @@ IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'SP_GET_TOP_REV
     DROP PROCEDURE [dbo].[SP_GET_TOP_REVIEWS]
 GO
 
+IF OBJECT_ID(N'[dbo].[SP_CREATE_BANNER]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_CREATE_BANNER];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_UPDATE_BANNER]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_UPDATE_BANNER];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_DELETE_BANNER]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_DELETE_BANNER];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_GET_BANNERS_ADMIN]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_GET_BANNERS_ADMIN];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_GET_ACTIVE_BANNERS]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_GET_ACTIVE_BANNERS];
+GO
+
+IF OBJECT_ID(N'[dbo].[SP_GET_BANNER_IMAGE_BY_ID]', N'P') IS NOT NULL
+	DROP PROCEDURE [dbo].[SP_GET_BANNER_IMAGE_BY_ID];
+GO
+
 CREATE OR ALTER PROCEDURE [dbo].[SP_USER_SOCIAL_LOGIN]
     @Email      NVARCHAR(255),
     @FirstName  NVARCHAR(100),
@@ -403,18 +470,18 @@ BEGIN
 
         -- Get the Customer role ID
         SELECT TOP 1 @CustomerRoleId = RoleId
-        FROM Roles
+        FROM dbo.Roles
         WHERE RoleName = 'Customer' AND Active = 1;
 
         -- Find existing user by email
         SELECT @UserId = UserId
-        FROM Users
+        FROM dbo.Users
         WHERE Email = @Email AND TenantId = @TenantId AND Active = 1;
 
         -- If not found, create new social user
         IF @UserId IS NULL
         BEGIN
-            INSERT INTO Users (
+            INSERT INTO dbo.Users (
                 FirstName, LastName, Email, Phone,
                 PasswordHash, Salt,
                 TenantId, RoleId,
@@ -434,7 +501,7 @@ BEGIN
         ELSE
         BEGIN
             -- Update last login for existing user
-            UPDATE Users
+            UPDATE dbo.Users
             SET LastLogin = GETUTCDATE(), UpdatedAt = GETUTCDATE()
             WHERE UserId = @UserId;
         END
@@ -453,8 +520,8 @@ BEGIN
             r.RoleName,
             r.RoleDescription,
             CAST(0 AS BIT) AS RememberMe
-        FROM Users u
-        LEFT JOIN Roles r ON u.RoleId = r.RoleId
+        FROM dbo.Users u
+        LEFT JOIN dbo.Roles r ON u.RoleId = r.RoleId
         WHERE u.UserId = @UserId;
 
     END TRY
@@ -484,7 +551,7 @@ BEGIN
 
     DECLARE @CurrentTime DATETIME2(7) = GETUTCDATE();
 
-    INSERT INTO ContactMessages
+    INSERT INTO dbo.ContactMessages
     (
         UserId,
         TenantId,
@@ -537,7 +604,7 @@ BEGIN
             ViewedAt,
             ViewedBy,
             CreatedAt
-        FROM ContactMessages
+        FROM dbo.ContactMessages WITH (NOLOCK)
         WHERE (@TenantId IS NULL OR TenantId = @TenantId)
         ORDER BY IsViewed ASC, CreatedAt DESC;
     END TRY
@@ -559,7 +626,7 @@ BEGIN
     SET NOCOUNT ON;
 
     BEGIN TRY
-        UPDATE ContactMessages
+        UPDATE dbo.ContactMessages
         SET IsViewed = 1,
             ViewedAt = GETUTCDATE(),
             ViewedBy = @ViewedBy
@@ -590,24 +657,24 @@ BEGIN
 		BEGIN TRANSACTION;
 		
 		-- Check if category exists and belongs to the tenant
-		IF NOT EXISTS (SELECT 1 FROM Categories WHERE CategoryId = @CategoryId AND TenantId = @TenantId)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Categories WHERE CategoryId = @CategoryId AND TenantId = @TenantId)
 		BEGIN
 			RAISERROR('Category not found or does not belong to this tenant.', 16, 1);
 			RETURN;
 		END
 		
 		-- Check if category has child categories
-		IF EXISTS (SELECT 1 FROM Categories WHERE ParentCategoryId = @CategoryId AND Active = 1)
+		IF EXISTS (SELECT 1 FROM dbo.Categories WHERE ParentCategoryId = @CategoryId AND Active = 1)
 		BEGIN
 			RAISERROR('Cannot delete category with active child categories. Please delete or reassign child categories first.', 16, 1);
 			RETURN;
 		END
 		
 		-- Check if category is used by any products
-		IF EXISTS (SELECT 1 FROM Products WHERE Category = @CategoryId AND Active = 1)
+		IF EXISTS (SELECT 1 FROM dbo.Products WHERE Category = @CategoryId AND Active = 1)
 		BEGIN
 			-- Soft delete - just mark as inactive
-			UPDATE Categories
+			UPDATE dbo.Categories
 			SET 
 				Active = 0,
 				Modified = GETUTCDATE(),
@@ -618,7 +685,7 @@ BEGIN
 		ELSE
 		BEGIN
 			-- Hard delete - no products are using this category
-			DELETE FROM Categories 
+			DELETE FROM dbo.Categories 
 			WHERE CategoryId = @CategoryId 
 				AND TenantId = @TenantId;
 		END
@@ -662,7 +729,7 @@ BEGIN
 		DECLARE @IsActive BIT;
 		
 		-- Validate product exists and is active
-		IF NOT EXISTS (SELECT 1 FROM Products WHERE ProductId = @ProductId AND Active = 1)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Products WHERE ProductId = @ProductId AND Active = 1)
 		BEGIN
 			RAISERROR('Product not found or inactive.', 16, 1);
 			RETURN;
@@ -673,7 +740,7 @@ BEGIN
 			@ImageName = ImageName,
 			@IsMain = Main,
 			@IsActive = Active
-		FROM ProductImages 
+		FROM dbo.ProductImages 
 		WHERE ImageId = @ImageId AND ProductId = @ProductId;
 		
 		IF @ImageName IS NULL
@@ -690,7 +757,7 @@ BEGIN
 		END
 		
 		-- Validate user if provided
-		IF @UserId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		IF @UserId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND Active = 1)
 		BEGIN
 			RAISERROR('User not found or inactive.', 16, 1);
 			RETURN;
@@ -699,7 +766,7 @@ BEGIN
 		-- Check if this is the last active image for the product
 		DECLARE @ActiveImageCount INT;
 		SELECT @ActiveImageCount = COUNT(*)
-		FROM ProductImages 
+		FROM dbo.ProductImages 
 		WHERE ProductId = @ProductId AND Active = 1 AND ImageId != @ImageId;
 		
 		-- Prevent deletion of the last image if it's the main image
@@ -713,13 +780,13 @@ BEGIN
 		IF @HardDelete = 1
 		BEGIN
 			-- Hard delete: Remove from database completely
-			DELETE FROM ProductImages
+			DELETE FROM dbo.ProductImages
 			WHERE ImageId = @ImageId AND ProductId = @ProductId;
 		END
 		ELSE
 		BEGIN
 			-- Soft delete: Mark as inactive
-			UPDATE ProductImages
+			UPDATE dbo.ProductImages
 			SET 
 				Active = 0,
 				Main = 0, -- Remove main status if it was main
@@ -733,7 +800,7 @@ BEGIN
 		-- If deleted image was main, set another active image as main
 		IF @IsMain = 1 AND @ActiveImageCount > 0
 		BEGIN
-			UPDATE ProductImages
+			UPDATE dbo.ProductImages
 			SET 
 				Main = 1,
 				Modified = @CurrentTime
@@ -741,21 +808,21 @@ BEGIN
 				AND Active = 1 
 				AND ImageId = (
 					SELECT TOP 1 ImageId 
-					FROM ProductImages 
+					FROM dbo.ProductImages 
 					WHERE ProductId = @ProductId AND Active = 1 
 					ORDER BY OrderBy, ImageId
 				);
 		END
 		
 		-- Update product modified date
-		UPDATE Products
+		UPDATE dbo.Products
 		SET Modified = @CurrentTime
 		WHERE ProductId = @ProductId;
 		
 		-- Log the image deletion activity
 		IF @UserId IS NOT NULL
 		BEGIN
-			INSERT INTO UserActivityLog (
+			INSERT INTO dbo.UserActivityLog (
 				UserId,
 				ActivityType,
 				ActivityDescription,
@@ -795,7 +862,7 @@ BEGIN
 			pi.OrderBy,
 			pi.CreatedAt AS Created,
 			pi.Modified
-		FROM ProductImages pi
+		FROM dbo.ProductImages pi
 		WHERE pi.ProductId = @ProductId AND pi.Active = 1
 		ORDER BY pi.OrderBy, pi.ImageId;
 		
@@ -813,7 +880,7 @@ BEGIN
 		-- Log the failed image deletion
 		IF @UserId IS NOT NULL
 		BEGIN
-			INSERT INTO UserActivityLog (
+			INSERT INTO dbo.UserActivityLog (
 				UserId,
 				ActivityType,
 				ActivityDescription,
@@ -855,14 +922,14 @@ BEGIN
 		BEGIN TRANSACTION;
 		
 		-- Check if category exists and belongs to the tenant
-		IF NOT EXISTS (SELECT 1 FROM Categories WHERE CategoryId = @CategoryId AND TenantId = @TenantId)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Categories WHERE CategoryId = @CategoryId AND TenantId = @TenantId)
 		BEGIN
 			RAISERROR('Category not found or does not belong to this tenant.', 16, 1);
 			RETURN;
 		END
 		
 		-- Check if new category name already exists for this tenant (excluding current category)
-		IF EXISTS (SELECT 1 FROM Categories WHERE CategoryName = @CategoryName AND TenantId = @TenantId AND CategoryId != @CategoryId)
+		IF EXISTS (SELECT 1 FROM dbo.Categories WHERE CategoryName = @CategoryName AND TenantId = @TenantId AND CategoryId != @CategoryId)
 		BEGIN
 			RAISERROR('Category name already exists for this tenant.', 16, 1);
 			RETURN;
@@ -871,7 +938,7 @@ BEGIN
 		-- Validate parent category if provided
 		IF @ParentCategoryId IS NOT NULL
 		BEGIN
-			IF NOT EXISTS (SELECT 1 FROM Categories WHERE CategoryId = @ParentCategoryId AND TenantId = @TenantId)
+			IF NOT EXISTS (SELECT 1 FROM dbo.Categories WHERE CategoryId = @ParentCategoryId AND TenantId = @TenantId)
 			BEGIN
 				RAISERROR('Parent category does not exist.', 16, 1);
 				RETURN;
@@ -886,7 +953,7 @@ BEGIN
 		END
 		
 		-- Update category
-		UPDATE Categories
+		UPDATE dbo.Categories
 		SET 
 			CategoryName = @CategoryName,
 			Description = @Description,
@@ -944,11 +1011,11 @@ BEGIN
 		
 		
 		IF NOT EXISTS (
-			SELECT 1 FROM Categories WHERE CategoryName = @CategoryName AND TenantId = @TenantId
+			SELECT 1 FROM dbo.Categories WHERE CategoryName = @CategoryName AND TenantId = @TenantId
 		)
 		BEGIN
 			-- Insert new category
-			INSERT INTO Categories (
+			INSERT INTO dbo.Categories (
 				TenantId,
 				CategoryName,
 				Description,
@@ -984,7 +1051,7 @@ BEGIN
 		END
 		ELSE
 		BEGIN
-			UPDATE Categories
+			UPDATE dbo.Categories
 			SET 
 				CategoryName = @CategoryName,
 				Description = @Description,
@@ -1002,7 +1069,7 @@ BEGIN
 		END
 		
 		-- Return the new category ID
-		SELECT CategoryId from Categories WHERE CategoryName = @CategoryName;
+		SELECT CategoryId from dbo.Categories WHERE CategoryName = @CategoryName;
 		
 		COMMIT TRANSACTION;
 	END TRY
@@ -1040,7 +1107,7 @@ BEGIN
 			c.ParentCategoryId,
 			c.TenantId,
 			c.MenuId
-		FROM Categories c
+		FROM dbo.Categories c WITH (NOLOCK)
 		WHERE (@TenantId IS NULL OR c.TenantId = @TenantId)
 			AND c.Active = 1
 		ORDER BY c.OrderBy, c.CategoryName;
@@ -1068,7 +1135,7 @@ BEGIN
 		BEGIN TRANSACTION;
 		
 		-- Validate user exists and is active
-		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND Active = 1)
 		BEGIN
 			RAISERROR('User not found or inactive.', 16, 1);
 			RETURN;
@@ -1078,7 +1145,7 @@ BEGIN
 		IF @LogoutFromAllDevices = 1
 		BEGIN
 			-- Clear remember me sessions
-			UPDATE Users 
+			UPDATE dbo.Users 
 			SET RememberMeToken = NULL,
 				RememberMeExpiry = NULL,
 				LastLogout = GETUTCDATE(),
@@ -1088,14 +1155,14 @@ BEGIN
 		ELSE
 		BEGIN
 			-- Update last logout time
-			UPDATE Users 
+			UPDATE dbo.Users 
 			SET LastLogout = GETUTCDATE(),
 			LastLogin = NULL
 			WHERE UserId = @UserId;
 		END
 		
 		-- Log the logout activity
-		INSERT INTO UserActivityLog (
+		INSERT INTO dbo.UserActivityLog (
 			UserId,
 			ActivityType,
 			ActivityDescription,
@@ -1165,8 +1232,8 @@ BEGIN
 			c.OrderBy AS CategoryOrderBy,
 			c.Icon AS CategoryIcon,
 			c.Description AS CategoryDescription
-		FROM MenuMaster m
-		LEFT JOIN Categories c ON m.MenuId = c.MenuId 
+		FROM dbo.MenuMaster m WITH (NOLOCK)
+		LEFT JOIN dbo.Categories c WITH (NOLOCK) ON m.MenuId = c.MenuId 
 			AND c.Active = 1
 			AND (@TenantId IS NULL OR c.TenantId = @TenantId)
 		WHERE m.Active = 1
@@ -1204,14 +1271,14 @@ BEGIN
 		DECLARE @DefaultRoleId BIGINT = 2; -- Assuming 2 is the default user role
 		
 		-- Check if email already exists
-		IF EXISTS (SELECT 1 FROM Users WHERE Email = @Email)
+		IF EXISTS (SELECT 1 FROM dbo.Users WHERE Email = @Email)
 		BEGIN
 			RAISERROR('Email address is already registered.', 16, 1);
 			RETURN;
 		END
 		
 		-- Check if phone already exists
-		IF EXISTS (SELECT 1 FROM Users WHERE Phone = @Phone)
+		IF EXISTS (SELECT 1 FROM dbo.Users WHERE Phone = @Phone)
 		BEGIN
 			RAISERROR('Phone number is already registered.', 16, 1);
 			RETURN;
@@ -1245,7 +1312,7 @@ BEGIN
 		END
 		
 		-- Insert new user
-		INSERT INTO Users (
+		INSERT INTO dbo.Users (
 			FirstName,
 			LastName,
 			Email,
@@ -1285,7 +1352,7 @@ BEGIN
 		SET @UserId = SCOPE_IDENTITY();
 		
 		-- -- Assign default role to user
-		-- INSERT INTO UserRoles (UserId, RoleId, CreatedAt)
+		-- INSERT INTO dbo.UserRoles (UserId, RoleId, CreatedAt)
 		-- VALUES (@UserId, @DefaultRoleId, GETUTCDATE());
 		
 		-- Return user information with role
@@ -1303,9 +1370,9 @@ BEGIN
 			r.RoleId,
 			r.RoleName,
 			r.RoleDescription
-		FROM Users u
-		-- LEFT JOIN UserRoles ur ON u.UserId = ur.UserId
-		INNER JOIN Roles r ON r.RoleId = u.RoleId
+		FROM dbo.Users u
+		-- LEFT JOIN dbo.UserRoles ur ON u.UserId = ur.UserId
+		INNER JOIN dbo.Roles r ON r.RoleId = u.RoleId
 		WHERE u.UserId = @UserId;
 		
 		COMMIT TRANSACTION;
@@ -1351,7 +1418,7 @@ BEGIN
 			@LoginAttempts = LoginAttempts,
 			@AccountLocked = AccountLocked,
 			@LastLoginAttempt = LastLoginAttempt
-		FROM Users 
+		FROM dbo.Users 
 		WHERE (Email = @EmailOrPhone OR Phone = @EmailOrPhone)
 			AND Active = 1;
 		
@@ -1374,7 +1441,7 @@ BEGIN
 			ELSE
 			BEGIN
 				-- Unlock account
-				UPDATE Users 
+				UPDATE dbo.Users 
 				SET AccountLocked = 0, LoginAttempts = 0, LastLogout=NULL
 				WHERE UserId = @UserId;
 				SET @AccountLocked = 0;
@@ -1392,7 +1459,7 @@ BEGIN
 			-- Lock account after 5 failed attempts
 			IF @LoginAttempts >= 5
 			BEGIN
-				UPDATE Users 
+				UPDATE dbo.Users 
 				SET LoginAttempts = @LoginAttempts, 
 					AccountLocked = 1, 
 					LastLoginAttempt = GETUTCDATE()
@@ -1403,7 +1470,7 @@ BEGIN
 			END
 			ELSE
 			BEGIN
-				UPDATE Users 
+				UPDATE dbo.Users 
 				SET LoginAttempts = @LoginAttempts, 
 					LastLoginAttempt = GETUTCDATE()
 				WHERE UserId = @UserId;
@@ -1414,7 +1481,7 @@ BEGIN
 		END
 		
 		-- Successful login - reset attempts and update last login
-		UPDATE Users 
+		UPDATE dbo.Users 
 		SET LoginAttempts = 0, 
 			LastLogin = GETUTCDATE(),
 			LastLoginAttempt = GETUTCDATE(),
@@ -1436,9 +1503,9 @@ BEGIN
 			r.RoleName,
 			r.RoleDescription,
 			@RememberMe AS RememberMe
-		FROM Users u
-		-- LEFT JOIN UserRoles ur ON u.UserId = ur.UserId
-		LEFT JOIN Roles r ON u.RoleId = r.RoleId
+		FROM dbo.Users u
+		-- LEFT JOIN dbo.UserRoles ur ON u.UserId = ur.UserId
+		LEFT JOIN dbo.Roles r ON u.RoleId = r.RoleId
 		WHERE u.UserId = @UserId
 			AND u.Active = 1;
 		
@@ -1462,7 +1529,7 @@ BEGIN
 	
 	BEGIN TRY
 		-- Validate user exists and is active
-		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Users WITH (NOLOCK) WHERE UserId = @UserId AND Active = 1)
 		BEGIN
 			RAISERROR('User not found or inactive.', 16, 1);
 			RETURN;
@@ -1471,7 +1538,7 @@ BEGIN
 		-- Additional tenant validation if provided
 		IF @TenantId IS NOT NULL
 		BEGIN
-			IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND TenantId = @TenantId AND Active = 1)
+			IF NOT EXISTS (SELECT 1 FROM dbo.Users WITH (NOLOCK) WHERE UserId = @UserId AND TenantId = @TenantId AND Active = 1)
 			BEGIN
 				RAISERROR('User not found in the specified tenant.', 16, 1);
 				RETURN;
@@ -1526,10 +1593,10 @@ BEGIN
 			-- up.PreferenceKey,
 			-- up.PreferenceValue,
 			-- up.PreferenceType
-		FROM Users u
-		LEFT JOIN UserRoles ur ON u.UserId = ur.UserId
-		-- LEFT JOIN Roles r ON ur.RoleId = r.RoleId
-		LEFT JOIN UserAddresses addr ON u.UserId = addr.UserId AND addr.Active = 1
+		FROM dbo.Users u WITH (NOLOCK)
+		LEFT JOIN dbo.UserRoles ur WITH (NOLOCK) ON u.UserId = ur.UserId
+		-- LEFT JOIN dbo.Roles r WITH (NOLOCK) ON ur.RoleId = r.RoleId
+		LEFT JOIN dbo.UserAddresses addr WITH (NOLOCK) ON u.UserId = addr.UserId AND addr.Active = 1
 		-- LEFT JOIN UserPreferences up ON u.UserId = up.UserId AND up.Active = 1
 		WHERE u.UserId = @UserId 
 			AND u.Active = 1
@@ -1540,7 +1607,7 @@ BEGIN
 		SELECT 
 			'LOGIN_COUNT' AS StatType,
 			COUNT(*) AS StatValue
-		FROM UserActivityLog 
+		FROM dbo.UserActivityLog WITH (NOLOCK) 
 		WHERE UserId = @UserId 
 			AND ActivityType = 'LOGIN'
 			AND CreatedAt >= DATEADD(MONTH, -12, GETUTCDATE())
@@ -1550,7 +1617,7 @@ BEGIN
 		SELECT 
 			'LAST_ACTIVITY' AS StatType,
 			DATEDIFF(DAY, MAX(CreatedAt), GETUTCDATE()) AS StatValue
-		FROM UserActivityLog 
+		FROM dbo.UserActivityLog WITH (NOLOCK) 
 		WHERE UserId = @UserId
 		
 		UNION ALL
@@ -1570,7 +1637,7 @@ BEGIN
 				CASE 
 				WHEN PhoneVerified = 1 THEN 20 ELSE 0 END +
 				20 AS StatValue -- Base score for having name and email
-		FROM Users 
+		FROM dbo.Users WITH (NOLOCK) 
 		WHERE UserId = @UserId;
 		
 	END TRY
@@ -1617,7 +1684,7 @@ BEGIN
 		BEGIN TRANSACTION;
 		
 		-- Validate user exists and is active
-		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND Active = 1)
 		BEGIN
 			RAISERROR('User not found or inactive.', 16, 1);
 			RETURN;
@@ -1643,14 +1710,14 @@ BEGIN
 		END
 		
 		-- Check if phone number already exists for another user
-		IF @Phone IS NOT NULL AND EXISTS (SELECT 1 FROM Users WHERE Phone = @Phone AND UserId != @UserId)
+		IF @Phone IS NOT NULL AND EXISTS (SELECT 1 FROM dbo.Users WHERE Phone = @Phone AND UserId != @UserId)
 		BEGIN
 			RAISERROR('Phone number is already registered to another user.', 16, 1);
 			RETURN;
 		END
 		
 		-- Update user profile
-		UPDATE Users
+		UPDATE dbo.Users
 		SET 
 			FirstName = ISNULL(@FirstName, FirstName),
 			LastName = ISNULL(@LastName, LastName),
@@ -1679,7 +1746,7 @@ BEGIN
 			
 			-- Check if user has an existing address of the specified type
 			SELECT @ExistingAddressId = AddressId 
-			FROM UserAddresses 
+			FROM dbo.UserAddresses 
 			WHERE UserId = @UserId 
 				AND AddressType = @AddressType 
 				AND Active = 1;
@@ -1687,7 +1754,7 @@ BEGIN
 			IF @ExistingAddressId IS NOT NULL AND @UpdateAddressIfExists = 1
 			BEGIN
 				-- Update existing address
-				UPDATE UserAddresses
+				UPDATE dbo.UserAddresses
 				SET 
 					Street = ISNULL(@AddressStreet, Street),
 					City = ISNULL(@AddressCity, City),
@@ -1700,7 +1767,7 @@ BEGIN
 			ELSE IF @ExistingAddressId IS NULL
 			BEGIN
 				-- Create new address
-				INSERT INTO UserAddresses (
+				INSERT INTO dbo.UserAddresses (
 					UserId,
 					AddressType,
 					Street,
@@ -1729,7 +1796,7 @@ BEGIN
 		END
 		
 		-- Log the profile update activity
-		INSERT INTO UserActivityLog (
+		INSERT INTO dbo.UserActivityLog (
 			UserId,
 			ActivityType,
 			ActivityDescription,
@@ -1763,6 +1830,56 @@ BEGIN
 END
 GO
 
+CREATE PROCEDURE [dbo].[SP_UPDATE_USER_PROFILE_IMAGE]
+	@UserId BIGINT,
+	@TenantId BIGINT = NULL,
+	@ImageData VARBINARY(MAX),
+	@ContentType NVARCHAR(100),
+	@ProfilePictureUrl NVARCHAR(500) = NULL
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	BEGIN TRY
+		UPDATE dbo.Users
+		SET ProfileImageData        = @ImageData,
+			ProfileImageContentType = @ContentType,
+			ProfileImageUpdatedAt   = GETUTCDATE(),
+			ProfilePicture          = ISNULL(@ProfilePictureUrl, ProfilePicture),
+			UpdatedAt               = GETUTCDATE()
+		WHERE UserId = @UserId
+		  AND Active = 1
+		  AND (@TenantId IS NULL OR TenantId = @TenantId);
+
+		SELECT @@ROWCOUNT AS RowsAffected;
+	END TRY
+	BEGIN CATCH
+		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+		DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+		DECLARE @ErrorState INT = ERROR_STATE();
+		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+	END CATCH
+END
+GO
+
+CREATE PROCEDURE [dbo].[SP_GET_USER_PROFILE_IMAGE]
+	@UserId BIGINT,
+	@TenantId BIGINT = NULL
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	SELECT TOP 1
+		ProfileImageData,
+		ProfileImageContentType
+	FROM dbo.Users WITH (NOLOCK)
+	WHERE UserId = @UserId
+	  AND Active = 1
+	  AND ProfileImageData IS NOT NULL
+	  AND (@TenantId IS NULL OR TenantId = @TenantId);
+END
+GO
+
 CREATE PROCEDURE [dbo].[SP_RESET_PASSWORD]
 	@UserId BIGINT,
 	@NewPassword NVARCHAR(100),
@@ -1785,7 +1902,7 @@ BEGIN
 		-- Validate reset token and get user information
 		SELECT 
 			@UserId = UserId
-		FROM Users 
+		FROM dbo.Users 
 		WHERE Active = 1 AND UserId=@UserId;
 		
 		-- Check if token exists
@@ -1800,7 +1917,7 @@ BEGIN
 		SET @HashedPassword = CONVERT(NVARCHAR(100), HASHBYTES('SHA2_256', cast(@NewPassword as NVARCHAR(100))+ @Salt), 2);
 		
 		-- Update user password	
-		UPDATE Users
+		UPDATE dbo.Users
 		SET 
 			PasswordHash = @HashedPassword,
 			Salt = @Salt,
@@ -1813,7 +1930,7 @@ BEGIN
 		WHERE UserId = @UserId;		
 		
 		-- Log the password reset activity
-		INSERT INTO UserActivityLog (
+		INSERT INTO dbo.UserActivityLog (
 			UserId,
 			ActivityType,
 			ActivityDescription,
@@ -1868,7 +1985,7 @@ BEGIN
 		-- Log the failed password reset attempt
 		IF @UserId IS NOT NULL
 		BEGIN
-			INSERT INTO UserActivityLog (
+			INSERT INTO dbo.UserActivityLog (
 				UserId,
 				ActivityType,
 				ActivityDescription,
@@ -1996,7 +2113,7 @@ BEGIN
 	-- Get total count first
 	SET @SQL = '
 	SELECT COUNT(*) as TotalCount
-	FROM Products p 
+	FROM dbo.Products p 
 	' + @WhereClause;
 	
 	-- Create temp table for count
@@ -2038,10 +2155,11 @@ BEGIN
 		p.UserId,
 		p.Overview,
 		p.LongDescription
-	FROM Products p 
+	FROM dbo.Products p 
 	' + @WhereClause + @OrderByClause + '
 	OFFSET ' + CAST(@Offset AS VARCHAR) + ' ROWS
-	FETCH NEXT ' + CAST(@Limit AS VARCHAR) + ' ROWS ONLY';
+	FETCH NEXT ' + CAST(@Limit AS VARCHAR) + ' ROWS ONLY
+	OPTION (RECOMPILE)';
 	
 	-- Execute main query
 	EXEC sp_executesql @SQL;
@@ -2082,7 +2200,7 @@ BEGIN
 			pi.CreatedAt,
 			pi.Modified,
 			pi.CreatedBy
-		FROM ProductImages pi
+		FROM dbo.ProductImages pi WITH (NOLOCK)
 		WHERE pi.ImageId = @ImageId 
 		AND pi.Active = 1;
 		
@@ -2127,7 +2245,7 @@ BEGIN
 			pi.CreatedAt,
 			pi.Modified,
 			pi.CreatedBy
-		FROM ProductImages pi
+		FROM dbo.ProductImages pi WITH (NOLOCK)
 		WHERE pi.ImageId = @ConvertedImageId
 		AND pi.Active = 1;
 	END TRY
@@ -2163,7 +2281,7 @@ BEGIN
 		DECLARE @CurrentTime DATETIME = GETUTCDATE();
 		DECLARE @NewConvertedImageId BIGINT;
 
-		IF NOT EXISTS (SELECT 1 FROM Products WHERE ProductId = @ProductId AND TenantId = @TenantId AND Active = 1)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Products WHERE ProductId = @ProductId AND TenantId = @TenantId AND Active = 1)
 		BEGIN
 			RAISERROR('Product not found or does not belong to this tenant.', 16, 1);
 			RETURN;
@@ -2171,14 +2289,14 @@ BEGIN
 
 		IF @Main = 1
 		BEGIN
-			UPDATE ProductImages
+			UPDATE dbo.ProductImages
 			SET Main = 0,
 				Modified = @CurrentTime
 			WHERE ProductId = @ProductId
 			  AND Active = 1;
 		END
 
-		INSERT INTO ProductImages (
+		INSERT INTO dbo.ProductImages (
 			ProductId,
 			ImageName,
 			ContentType,
@@ -2205,7 +2323,7 @@ BEGIN
 			1,
 			CASE
 				WHEN @OrderBy > 0 THEN @OrderBy
-				ELSE (SELECT ISNULL(MAX(OrderBy), 0) + 1 FROM ProductImages WHERE ProductId = @ProductId AND Active = 1)
+				ELSE (SELECT ISNULL(MAX(OrderBy), 0) + 1 FROM dbo.ProductImages WHERE ProductId = @ProductId AND Active = 1)
 			END,
 			@CurrentTime,
 			@CurrentTime,
@@ -2215,7 +2333,7 @@ BEGIN
 
 		SET @NewConvertedImageId = SCOPE_IDENTITY();
 
-		UPDATE Products
+		UPDATE dbo.Products
 		SET Modified = @CurrentTime
 		WHERE ProductId = @ProductId;
 
@@ -2229,7 +2347,7 @@ BEGIN
 			pi.Active,
 			pi.OrderBy,
 			pi.CreatedAt
-		FROM ProductImages pi
+		FROM dbo.ProductImages pi
 		WHERE pi.ImageId = @NewConvertedImageId;
 
 		COMMIT TRANSACTION;
@@ -2262,14 +2380,14 @@ BEGIN
 		DECLARE @NewImageId BIGINT;
 		
 		-- Validate that the product exists and is active
-		IF NOT EXISTS (SELECT 1 FROM Products WHERE ProductId = @ProductId AND Active = 1)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Products WHERE ProductId = @ProductId AND Active = 1)
 		BEGIN
 			RAISERROR('Product not found or inactive.', 16, 1);
 			RETURN -1;
 		END
 		
 		-- Insert the new image
-		INSERT INTO ProductImages (
+		INSERT INTO dbo.ProductImages (
 			ProductId,
 			ImageName,
 			ContentType,
@@ -2293,7 +2411,7 @@ BEGIN
 			NULL, -- Poster URL will be generated by the application
 			0,    -- Not main by default
 			1,    -- Active
-			(SELECT ISNULL(MAX(OrderBy), 0) + 1 FROM ProductImages WHERE ProductId = @ProductId AND Active = 1),
+			(SELECT ISNULL(MAX(OrderBy), 0) + 1 FROM dbo.ProductImages WHERE ProductId = @ProductId AND Active = 1),
 			@CurrentTime,
 			@CurrentTime,
 			NULL  -- No user context in this simple endpoint
@@ -2303,7 +2421,7 @@ BEGIN
 		SET @NewImageId = SCOPE_IDENTITY();
 		
 		-- Update product modified date
-		UPDATE Products 
+		UPDATE dbo.Products 
 		SET Modified = @CurrentTime 
 		WHERE ProductId = @ProductId;
 		
@@ -2391,7 +2509,7 @@ BEGIN
 		-- Get total count first
 		SET @SQL = '
 		SELECT COUNT(*) as TotalCount
-		FROM Products p 
+		FROM dbo.Products p 
 		' + @WhereClause;
 		
 		-- Create temp table for count
@@ -2435,11 +2553,12 @@ BEGIN
 			p.LongDescription,
 			-- Category information (if needed)
 			ISNULL(c.CategoryName, ''Unknown'') as CategoryName
-		FROM Products p 
-		LEFT JOIN Categories c ON p.Category = c.CategoryId AND c.TenantId = p.TenantId
+		FROM dbo.Products p 
+		LEFT JOIN dbo.Categories c ON p.Category = c.CategoryId AND c.TenantId = p.TenantId
 		' + @WhereClause + @OrderByClause + '
 		OFFSET ' + CAST(@Offset AS VARCHAR(10)) + ' ROWS
-		FETCH NEXT ' + CAST(@Limit AS VARCHAR(10)) + ' ROWS ONLY';
+		FETCH NEXT ' + CAST(@Limit AS VARCHAR(10)) + ' ROWS ONLY
+		OPTION (RECOMPILE)';
 		
 		-- Execute main query
 		EXEC sp_executesql @SQL;
@@ -2494,18 +2613,18 @@ BEGIN
 			p.UserId,
 			p.Overview,
 			p.LongDescription
-		FROM Products p WITH (NOLOCK)
+		FROM dbo.Products p WITH (NOLOCK)
 		WHERE p.ProductId = @ProductId
 			AND p.Active = 1;
 
 		-- Get product images
-		SELECT 
+		SELECT
 			i.ImageId,
 			i.ImageName as Poster,
 			i.Main as [Main],
 			i.Active,
 			i.OrderBy
-		FROM ProductImages i WITH (NOLOCK)
+		FROM dbo.ProductImages i WITH (NOLOCK)
 		WHERE i.ProductId = @ProductId
 			AND i.Active = 1
 		ORDER BY i.OrderBy;
@@ -2544,14 +2663,14 @@ CREATE PROCEDURE [dbo].[SP_ADD_PRODUCT]
 				BEGIN TRANSACTION;
 				
 				-- Check if product code already exists for this tenant
-				IF EXISTS (SELECT 1 FROM Products WHERE TenantId = @TenantId AND ProductCode = @ProductCode)
+				IF EXISTS (SELECT 1 FROM dbo.Products WHERE TenantId = @TenantId AND ProductCode = @ProductCode)
 				BEGIN
 					RAISERROR('Product code already exists for this tenant.', 16, 1);
 					RETURN;
 				END
 				
 				-- Insert new product
-				INSERT INTO Products (
+				INSERT INTO dbo.Products (
 					TenantId,
 					ProductName,
 					ProductDescription,
@@ -2664,7 +2783,7 @@ CREATE PROCEDURE [dbo].[SP_ADD_PRODUCT]
 			BEGIN TRANSACTION;
 			
 			-- Check if product exists and belongs to the tenant
-			IF NOT EXISTS (SELECT 1 FROM Products WHERE ProductId = @ProductId AND TenantId = @TenantId)
+			IF NOT EXISTS (SELECT 1 FROM dbo.Products WHERE ProductId = @ProductId AND TenantId = @TenantId)
 			BEGIN
 				RAISERROR('Product not found or does not belong to this tenant.', 16, 1);
 				RETURN;
@@ -2673,7 +2792,7 @@ CREATE PROCEDURE [dbo].[SP_ADD_PRODUCT]
 			-- Check if product code already exists for another product of this tenant
 			IF EXISTS (
 				SELECT 1 
-				FROM Products 
+				FROM dbo.Products 
 				WHERE TenantId = @TenantId 
 					AND ProductCode = @ProductCode 
 					AND ProductId != @ProductId
@@ -2684,7 +2803,7 @@ CREATE PROCEDURE [dbo].[SP_ADD_PRODUCT]
 			END
 			
 			-- Update product
-			UPDATE Products
+			UPDATE dbo.Products
 			SET
 				ProductName = @ProductName,
 				ProductDescription = @ProductDescription,
@@ -2744,7 +2863,7 @@ GO
 				BEGIN TRANSACTION;
 				
 				-- Check if product exists and belongs to the tenant
-				IF NOT EXISTS (SELECT 1 FROM Products WHERE ProductId = @ProductId AND TenantId = @TenantId)
+				IF NOT EXISTS (SELECT 1 FROM dbo.Products WHERE ProductId = @ProductId AND TenantId = @TenantId)
 				BEGIN
 					RAISERROR('Product not found or does not belong to this tenant.', 16, 1);
 					RETURN;
@@ -2753,13 +2872,13 @@ GO
 				-- Check if product is referenced in any orders or carts
 				IF EXISTS (
 					SELECT 1 
-					FROM CartItems 
+					FROM dbo.CartItems 
 					WHERE ProductId = @ProductId AND Active = 1
-					OR EXISTS (SELECT 1 FROM OrderItems WHERE ProductId = @ProductId AND Active = 1)
+					OR EXISTS (SELECT 1 FROM dbo.OrderItems WHERE ProductId = @ProductId AND Active = 1)
 				)
 				BEGIN
 					-- Soft delete - just mark as inactive
-					UPDATE Products
+					UPDATE dbo.Products
 					SET 
 						Active = 0,
 						Modified = GETUTCDATE(),
@@ -2770,12 +2889,12 @@ GO
 				ELSE
 				BEGIN
 					-- Hard delete - first delete related records
-					DELETE FROM ProductImages WHERE ProductId = @ProductId;
-					DELETE FROM ProductReviews WHERE ProductId = @ProductId;
-					DELETE FROM ProductWishList WHERE ProductId = @ProductId;
+					DELETE FROM dbo.ProductImages WHERE ProductId = @ProductId;
+					DELETE FROM dbo.ProductReviews WHERE ProductId = @ProductId;
+					DELETE FROM dbo.ProductWishList WHERE ProductId = @ProductId;
 					
 					-- Then delete the product
-					DELETE FROM Products 
+					DELETE FROM dbo.Products 
 					WHERE ProductId = @ProductId 
 						AND TenantId = @TenantId;
 				END
@@ -2827,7 +2946,7 @@ GO
 				DECLARE @OperationType NVARCHAR(20) = '';
 				
 				-- Validate user exists and is active (with lock to ensure consistency)
-				IF NOT EXISTS (SELECT 1 FROM Users WITH (UPDLOCK, ROWLOCK) WHERE UserId = @UserId AND Active = 1)
+				IF NOT EXISTS (SELECT 1 FROM dbo.Users WITH (UPDLOCK, ROWLOCK) WHERE UserId = @UserId AND Active = 1)
 				BEGIN
 					IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
 					RAISERROR('User not found or inactive.', 16, 1);
@@ -2840,7 +2959,7 @@ GO
 					@ProductName = ProductName,
 					@AvailableStock = Quantity,
 					@ProductActive = Active
-				FROM Products WITH (UPDLOCK, ROWLOCK)
+				FROM dbo.Products WITH (UPDLOCK, ROWLOCK)
 				WHERE ProductId = @ProductId
 					AND (@TenantId IS NULL OR TenantId = @TenantId);
 				
@@ -2863,7 +2982,7 @@ GO
 				SELECT 
 					@ExistingCartId = CartId,
 					@ExistingQuantity = Quantity
-				FROM CartItems WITH (UPDLOCK, ROWLOCK)
+				FROM dbo.CartItems WITH (UPDLOCK, ROWLOCK)
 				WHERE UserId = @UserId 
 					AND ProductId = @ProductId 
 					AND Active = 1
@@ -2891,10 +3010,10 @@ GO
 				BEGIN
 					IF @ExistingCartId IS NOT NULL
 					BEGIN
-						DELETE FROM CartItems WHERE CartId = @ExistingCartId;
+						DELETE FROM dbo.CartItems WHERE CartId = @ExistingCartId;
 						
 						-- Log the cart item removal
-						INSERT INTO UserActivityLog (
+						INSERT INTO dbo.UserActivityLog (
 							UserId,
 							ActivityType,
 							ActivityDescription,
@@ -2943,7 +3062,7 @@ GO
 					IF @ExistingCartId IS NOT NULL
 					BEGIN
 						-- Update existing cart item
-						UPDATE CartItems
+						UPDATE dbo.CartItems
 						SET 
 							Quantity = @NewQuantity,
 							UpdatedDate = @CurrentTime,
@@ -2951,7 +3070,7 @@ GO
 						WHERE CartId = @ExistingCartId;
 						
 						-- Log the cart update activity
-						INSERT INTO UserActivityLog (
+						INSERT INTO dbo.UserActivityLog (
 							UserId,
 							ActivityType,
 							ActivityDescription,
@@ -2997,7 +3116,7 @@ GO
 						END
 						
 						-- Insert new cart item
-						INSERT INTO CartItems (
+						INSERT INTO dbo.CartItems (
 							UserId,
 							ProductId,
 							Quantity,
@@ -3020,7 +3139,7 @@ GO
 						SET @ExistingCartId = SCOPE_IDENTITY();
 						
 						-- Log the cart addition activity
-						INSERT INTO UserActivityLog (
+						INSERT INTO dbo.UserActivityLog (
 							UserId,
 							ActivityType,
 							ActivityDescription,
@@ -3056,8 +3175,8 @@ GO
 					COUNT(*) AS TotalUniqueItems,
 					ISNULL(SUM(ci.Quantity), 0) AS TotalQuantity,
 					ISNULL(SUM(ci.Quantity * p.Price), 0) AS TotalAmount
-				FROM CartItems ci WITH (READPAST)
-				INNER JOIN Products p WITH (READPAST) ON ci.ProductId = p.ProductId
+				FROM dbo.CartItems ci WITH (READPAST)
+				INNER JOIN dbo.Products p WITH (READPAST) ON ci.ProductId = p.ProductId
 				WHERE ci.UserId = @UserId 
 					AND ci.Active = 1
 					AND p.Active = 1
@@ -3068,7 +3187,7 @@ GO
 				-- Optional: Clean up old inactive cart items for this user (housekeeping - done outside transaction to avoid deadlocks)
 				-- This is a best-effort cleanup that won't block other transactions
 				BEGIN TRY
-					DELETE FROM CartItems 
+					DELETE FROM dbo.CartItems 
 					WHERE UserId = @UserId 
 						AND Active = 0 
 						AND UpdatedDate < DATEADD(DAY, -30, @CurrentTime);
@@ -3089,7 +3208,7 @@ GO
 				-- Log the failed cart operation with more specific details
 				IF @UserId IS NOT NULL
 				BEGIN
-					INSERT INTO UserActivityLog (
+					INSERT INTO dbo.UserActivityLog (
 						UserId,
 						ActivityType,
 						ActivityDescription,
@@ -3138,7 +3257,7 @@ GO
 					DECLARE @ItemTotal DECIMAL(18,2) = 0;
 					
 					-- Validate user exists and is active
-					IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+					IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND Active = 1)
 					BEGIN
 						RAISERROR('User not found or inactive.', 16, 1);
 						RETURN;
@@ -3150,8 +3269,8 @@ GO
 						@CurrentQuantity = ci.Quantity,
 						@ProductName = p.ProductName,
 						@ProductPrice = p.Price
-					FROM CartItems ci
-					INNER JOIN Products p ON ci.ProductId = p.ProductId
+					FROM dbo.CartItems ci
+					INNER JOIN dbo.Products p ON ci.ProductId = p.ProductId
 					WHERE ci.UserId = @UserId 
 						AND ci.ProductId = @ProductId 
 						AND ci.Active = 1
@@ -3173,13 +3292,13 @@ GO
 					IF @RemoveCompletely = 1
 					BEGIN
 						-- Permanently delete the cart item
-						DELETE FROM CartItems 
+						DELETE FROM dbo.CartItems 
 						WHERE CartId = @ExistingCartId;
 					END
 					ELSE
 					BEGIN
 						-- Mark as inactive (soft delete)
-						UPDATE CartItems
+						UPDATE dbo.CartItems
 						SET 
 							Active = 0,
 							UpdatedDate = @CurrentTime
@@ -3187,7 +3306,7 @@ GO
 					END
 					
 					-- Log the cart removal activity
-					INSERT INTO UserActivityLog (
+					INSERT INTO dbo.UserActivityLog (
 						UserId,
 						ActivityType,
 						ActivityDescription,
@@ -3220,8 +3339,8 @@ GO
 						COUNT(*) AS TotalUniqueItems,
 						ISNULL(SUM(ci.Quantity), 0) AS TotalQuantity,
 						ISNULL(SUM(ci.Quantity * p.Price), 0) AS TotalAmount
-					FROM CartItems ci
-					INNER JOIN Products p ON ci.ProductId = p.ProductId
+					FROM dbo.CartItems ci
+					INNER JOIN dbo.Products p ON ci.ProductId = p.ProductId
 					WHERE ci.UserId = @UserId 
 						AND ci.Active = 1
 						AND p.Active = 1
@@ -3236,20 +3355,20 @@ GO
 						p.BestSeller,
 						p.Offer,
 						pi.Poster AS ImageUrl
-					FROM Products p
-					LEFT JOIN ProductImages pi ON p.ProductId = pi.ProductId AND pi.Main = 1 AND pi.Active = 1
+					FROM dbo.Products p
+					LEFT JOIN dbo.ProductImages pi ON p.ProductId = pi.ProductId AND pi.Main = 1 AND pi.Active = 1
 					WHERE p.Active = 1
 						AND p.ProductId != @ProductId  -- Exclude the removed product
 						AND p.Category = (
 							SELECT Category 
-							FROM Products 
+							FROM dbo.Products 
 							WHERE ProductId = @ProductId
 						)
 						AND (@TenantId IS NULL OR p.TenantId = @TenantId)
 					ORDER BY p.Rating DESC, p.UserBuyCount DESC;
 					
 					-- Optional: Clean up old inactive cart items for this user (housekeeping)
-					DELETE FROM CartItems 
+					DELETE FROM dbo.CartItems 
 					WHERE UserId = @UserId 
 						AND Active = 0 
 						AND UpdatedDate < DATEADD(DAY, -30, @CurrentTime);
@@ -3268,7 +3387,7 @@ GO
 					-- Log the failed cart removal
 					IF @UserId IS NOT NULL
 					BEGIN
-						INSERT INTO UserActivityLog (
+						INSERT INTO dbo.UserActivityLog (
 							UserId,
 							ActivityType,
 							ActivityDescription,
@@ -3310,7 +3429,7 @@ GO
 					DECLARE @AffectedRows INT = 0;
 					
 					-- Validate user exists and is active
-					IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+					IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND Active = 1)
 					BEGIN
 						RAISERROR('User not found or inactive.', 16, 1);
 						RETURN;
@@ -3321,8 +3440,8 @@ GO
 						@CartItemCount = COUNT(*),
 						@TotalQuantity = ISNULL(SUM(ci.Quantity), 0),
 						@TotalValue = ISNULL(SUM(ci.Quantity * p.Price), 0)
-					FROM CartItems ci
-					INNER JOIN Products p ON ci.ProductId = p.ProductId
+					FROM dbo.CartItems ci
+					INNER JOIN dbo.Products p ON ci.ProductId = p.ProductId
 					WHERE ci.UserId = @UserId 
 						-- AND ci.Active = 1
 						AND p.Active = 1
@@ -3339,7 +3458,7 @@ GO
 					IF @ClearCompletely = 1
 					BEGIN
 						-- Permanently delete all cart items
-						DELETE FROM CartItems 
+						DELETE FROM dbo.CartItems 
 						WHERE UserId = @UserId 
 							-- AND Active = 1
 							AND (@TenantId IS NULL OR TenantId = @TenantId);
@@ -3349,7 +3468,7 @@ GO
 					ELSE
 					BEGIN
 						-- Mark all cart items as inactive (soft delete)
-						UPDATE CartItems
+						UPDATE dbo.CartItems
 						SET 
 							Active = 0,
 							UpdatedDate = @CurrentTime
@@ -3368,7 +3487,7 @@ GO
 					END
 					
 					-- Log the cart clearing activity
-					INSERT INTO UserActivityLog (
+					INSERT INTO dbo.UserActivityLog (
 						UserId,
 						ActivityType,
 						ActivityDescription,
@@ -3399,8 +3518,8 @@ GO
 						COUNT(*) AS TotalUniqueItems,
 						ISNULL(SUM(ci.Quantity), 0) AS TotalQuantity,
 						ISNULL(SUM(ci.Quantity * p.Price), 0) AS TotalAmount
-					FROM CartItems ci
-					INNER JOIN Products p ON ci.ProductId = p.ProductId
+					FROM dbo.CartItems ci
+					INNER JOIN dbo.Products p ON ci.ProductId = p.ProductId
 					WHERE ci.UserId = @UserId 
 						AND ci.Active = 1
 						AND p.Active = 1
@@ -3418,9 +3537,9 @@ GO
 						p.Offer,
 						pi.Poster AS ImageUrl,
 						cat.CategoryName AS CategoryName
-					FROM Products p
-					LEFT JOIN ProductImages pi ON p.ProductId = pi.ProductId AND pi.Main = 1 AND pi.Active = 1
-					LEFT JOIN Categories cat ON p.Category = cat.CategoryId
+					FROM dbo.Products p
+					LEFT JOIN dbo.ProductImages pi ON p.ProductId = pi.ProductId AND pi.Main = 1 AND pi.Active = 1
+					LEFT JOIN dbo.Categories cat ON p.Category = cat.CategoryId
 					WHERE p.Active = 1
 						AND p.InStock = 1
 						AND (@TenantId IS NULL OR p.TenantId = @TenantId)
@@ -3431,7 +3550,7 @@ GO
 						p.Trending DESC;
 					
 					-- Optional: Clean up old inactive cart items for this user (housekeeping)
-					DELETE FROM CartItems 
+					DELETE FROM dbo.CartItems 
 					WHERE UserId = @UserId 
 						AND Active = 0 
 						AND UpdatedDate < DATEADD(DAY, -30, @CurrentTime);
@@ -3467,7 +3586,7 @@ GO
 					-- Log the failed cart clearing
 					IF @UserId IS NOT NULL
 					BEGIN
-						INSERT INTO UserActivityLog (
+						INSERT INTO dbo.UserActivityLog (
 							UserId,
 							ActivityType,
 							ActivityDescription,
@@ -3498,7 +3617,7 @@ GO
 				
 				BEGIN TRY
 					-- Validate user exists and is active
-					IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+					IF NOT EXISTS (SELECT 1 FROM dbo.Users WITH (NOLOCK) WHERE UserId = @UserId AND Active = 1)
 					BEGIN
 						RAISERROR('User not found or inactive.', 16, 1);
 						RETURN;
@@ -3566,10 +3685,10 @@ GO
 						pi.Active AS ImageActive,
 						pi.OrderBy AS ImageOrderBy
 						
-					FROM CartItems c
-					INNER JOIN Products p ON c.ProductId = p.ProductId
-					LEFT JOIN Categories cat ON p.Category = cat.CategoryId
-					LEFT JOIN ProductImages pi ON p.ProductId = pi.ProductId AND pi.Active = 1
+					FROM dbo.CartItems c WITH (NOLOCK)
+					INNER JOIN dbo.Products p WITH (NOLOCK) ON c.ProductId = p.ProductId
+					LEFT JOIN dbo.Categories cat WITH (NOLOCK) ON p.Category = cat.CategoryId
+					LEFT JOIN dbo.ProductImages pi WITH (NOLOCK) ON p.ProductId = pi.ProductId AND pi.Active = 1
 					WHERE c.UserId = @UserId 
 						AND c.Active = 1
 						AND p.Active = 1
@@ -3583,8 +3702,8 @@ GO
 						SUM(c.Quantity * p.Price) AS TotalAmount,
 						SUM(CASE WHEN p.Quantity >= c.Quantity THEN (c.Quantity * p.Price) ELSE 0 END) AS AvailableItemsTotal,
 						COUNT(CASE WHEN p.Quantity < c.Quantity THEN 1 END) AS UnavailableItems
-					FROM CartItems c
-					INNER JOIN Products p ON c.ProductId = p.ProductId
+					FROM dbo.CartItems c WITH (NOLOCK)
+					INNER JOIN dbo.Products p WITH (NOLOCK) ON c.ProductId = p.ProductId
 					WHERE c.UserId = @UserId 
 						AND c.Active = 1
 						AND p.Active = 1
@@ -3599,18 +3718,18 @@ GO
 						p.BestSeller,
 						p.Offer,
 						pi.Poster AS ImageUrl
-					FROM Products p
-					LEFT JOIN ProductImages pi ON p.ProductId = pi.ProductId AND pi.Main = 1 AND pi.Active = 1
+					FROM dbo.Products p WITH (NOLOCK)
+					LEFT JOIN dbo.ProductImages pi WITH (NOLOCK) ON p.ProductId = pi.ProductId AND pi.Main = 1 AND pi.Active = 1
 					WHERE p.Active = 1
 						AND p.ProductId NOT IN (
 							SELECT c.ProductId 
-							FROM CartItems c 
+							FROM dbo.CartItems c WITH (NOLOCK) 
 							WHERE c.UserId = @UserId AND c.Active = 1
 						)
 						AND p.Category IN (
 							SELECT DISTINCT p2.Category
-							FROM CartItems c2
-							INNER JOIN Products p2 ON c2.ProductId = p2.ProductId
+							FROM dbo.CartItems c2 WITH (NOLOCK)
+							INNER JOIN dbo.Products p2 WITH (NOLOCK) ON c2.ProductId = p2.ProductId
 							WHERE c2.UserId = @UserId AND c2.Active = 1
 						)
 						AND (@TenantId IS NULL OR p.TenantId = @TenantId)
@@ -3640,7 +3759,7 @@ BEGIN
 	
 	BEGIN TRY
 		-- Validate user exists and is active
-		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Users WITH (NOLOCK) WHERE UserId = @UserId AND Active = 1)
 		BEGIN
 			RAISERROR('User not found or inactive.', 16, 1);
 			RETURN;
@@ -3714,16 +3833,16 @@ BEGIN
 			ELSE 0 
 		END AS OnSale,
 		ISNULL(p.Rating, 0) AS Rating,
-		0 AS TotalReviews, -- Can be calculated from ProductReviews table if needed
+		0 AS TotalReviews, -- Can be calculated from dbo.ProductReviews table WITH (NOLOCK) if needed
 		CASE 
 			WHEN p.Offer IS NOT NULL AND p.Offer != '' AND ISNUMERIC(p.Offer) = 1 
 			THEN CAST(p.Offer AS DECIMAL(5,2))
 			ELSE 0 
 		END AS DiscountPercentage
 		
-	FROM ProductWishList w
-	INNER JOIN Products p ON w.ProductId = p.ProductId
-	LEFT JOIN Categories cat ON p.Category = cat.CategoryId
+	FROM dbo.ProductWishList w WITH (NOLOCK)
+	INNER JOIN dbo.Products p WITH (NOLOCK) ON w.ProductId = p.ProductId
+	LEFT JOIN dbo.Categories cat WITH (NOLOCK) ON p.Category = cat.CategoryId
 	LEFT JOIN (
 		-- Get main image if exists, otherwise get first active image
 		SELECT 
@@ -3734,7 +3853,7 @@ BEGIN
 			pi1.Active,
 			pi1.OrderBy,
 			ROW_NUMBER() OVER (PARTITION BY pi1.ProductId ORDER BY CASE WHEN pi1.Main = 1 THEN 0 ELSE 1 END, pi1.OrderBy) AS rn
-		FROM ProductImages pi1
+		FROM dbo.ProductImages pi1 WITH (NOLOCK)
 		WHERE pi1.Active = 1
 	) pi ON p.ProductId = pi.ProductId AND pi.rn = 1
 		WHERE w.UserId = @UserId 
@@ -3749,8 +3868,8 @@ BEGIN
 			SUM(p.Price) AS TotalValue,
 			COUNT(CASE WHEN p.Quantity > 0 THEN 1 END) AS InStockItems,
 			COUNT(CASE WHEN p.Quantity = 0 THEN 1 END) AS OutOfStockItems
-		FROM ProductWishList w
-		INNER JOIN Products p ON w.ProductId = p.ProductId
+		FROM dbo.ProductWishList w WITH (NOLOCK)
+		INNER JOIN dbo.Products p WITH (NOLOCK) ON w.ProductId = p.ProductId
 		WHERE w.UserId = @UserId 
 			AND w.Active = 1
 			AND p.Active = 1
@@ -3782,7 +3901,7 @@ BEGIN
 		
 		-- Get tenant ID from product
 		SELECT @TenantId = TenantId
-		FROM Products
+		FROM dbo.Products
 		WHERE ProductId = @ProductId AND Active = 1;
 		
 		IF @TenantId IS NULL
@@ -3793,14 +3912,14 @@ BEGIN
 		
 		-- Check if wishlist item already exists (regardless of Active status to handle unique constraint)
 		SELECT @WishListId = WishListId
-		FROM ProductWishList
+		FROM dbo.ProductWishList
 		WHERE UserId = @UserId 
 			AND ProductId = @ProductId;
 		
 		IF @WishListId IS NOT NULL
 		BEGIN
 			-- Update existing wishlist item (reactivate if it was soft-deleted)
-			UPDATE ProductWishList
+			UPDATE dbo.ProductWishList
 			SET 
 				Active = 1, -- Reactivate if it was soft-deleted
 				UpdatedAt = @CurrentTime,
@@ -3811,7 +3930,7 @@ BEGIN
 		ELSE
 		BEGIN
 			-- Insert new wishlist item
-			INSERT INTO ProductWishList (
+			INSERT INTO dbo.ProductWishList (
 				UserId,
 				ProductId,
 				TenantId,
@@ -3859,9 +3978,9 @@ BEGIN
 			pi.ImageId,
 			pi.Poster AS ImageUrl,
 			pi.Main AS IsMainImage
-		FROM ProductWishList w
-		INNER JOIN Products p ON w.ProductId = p.ProductId
-		LEFT JOIN ProductImages pi ON p.ProductId = pi.ProductId AND pi.Main = 1 AND pi.Active = 1
+		FROM dbo.ProductWishList w
+		INNER JOIN dbo.Products p ON w.ProductId = p.ProductId
+		LEFT JOIN dbo.ProductImages pi ON p.ProductId = pi.ProductId AND pi.Main = 1 AND pi.Active = 1
 		WHERE w.WishListId = @WishListId;
 	END TRY
 	BEGIN CATCH
@@ -3893,7 +4012,7 @@ BEGIN
 		
 		-- Check if wishlist item exists
 		SELECT @WishListId = WishListId
-		FROM ProductWishList
+		FROM dbo.ProductWishList
 		WHERE UserId = @UserId 
 			AND ProductId = @ProductId 
 			AND Active = 1;
@@ -3906,7 +4025,7 @@ BEGIN
 		END
 		
 		-- Soft delete: Set Active = 0
-		UPDATE ProductWishList
+		UPDATE dbo.ProductWishList
 		SET 
 			Active = 0,
 			UpdatedAt = @CurrentTime
@@ -3952,7 +4071,7 @@ BEGIN
 		DECLARE @AffectedRows INT = 0;
 		
 		-- Validate user exists and is active
-		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND Active = 1)
 		BEGIN
 			RAISERROR('User not found or inactive.', 16, 1);
 			RETURN;
@@ -3961,8 +4080,8 @@ BEGIN
 		-- Get current wishlist statistics before clearing
 		SELECT 
 			@WishlistItemCount = COUNT(*)
-		FROM ProductWishList pw
-		INNER JOIN Products p ON pw.ProductId = p.ProductId
+		FROM dbo.ProductWishList pw
+		INNER JOIN dbo.Products p ON pw.ProductId = p.ProductId
 		WHERE pw.UserId = @UserId 
 			AND pw.Active = 1
 			AND p.Active = 1
@@ -3979,7 +4098,7 @@ BEGIN
 		IF @ClearCompletely = 1
 		BEGIN
 			-- Permanently delete all wishlist items
-			DELETE FROM ProductWishList 
+			DELETE FROM dbo.ProductWishList 
 			WHERE UserId = @UserId 
 				AND Active = 1
 				AND (@TenantId IS NULL OR TenantId = @TenantId);
@@ -3989,7 +4108,7 @@ BEGIN
 		ELSE
 		BEGIN
 			-- Mark all wishlist items as inactive (soft delete)
-			UPDATE ProductWishList
+			UPDATE dbo.ProductWishList
 			SET 
 				Active = 0,
 				UpdatedAt = @CurrentTime
@@ -4008,7 +4127,7 @@ BEGIN
 		END
 		
 		-- Log the wishlist clearing activity
-		INSERT INTO UserActivityLog (
+		INSERT INTO dbo.UserActivityLog (
 			UserId,
 			ActivityType,
 			ActivityDescription,
@@ -4062,7 +4181,7 @@ BEGIN
 		END
 		
 		-- Check if product exists
-		IF NOT EXISTS (SELECT 1 FROM Products WHERE ProductId = @ProductId AND Active = 1)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Products WITH (NOLOCK) WHERE ProductId = @ProductId AND Active = 1)
 		BEGIN
 			RAISERROR('Product not found or inactive.', 16, 1);
 			RETURN;
@@ -4084,8 +4203,8 @@ BEGIN
 			pi.CreatedAt,
 			pi.Modified,
 			p.TenantId
-		FROM ProductImages pi
-		INNER JOIN Products p ON pi.ProductId = p.ProductId
+		FROM dbo.ProductImages pi WITH (NOLOCK)
+		INNER JOIN dbo.Products p WITH (NOLOCK) ON pi.ProductId = p.ProductId
 		WHERE pi.ProductId = @ProductId 
 			AND pi.Active = 1
 		ORDER BY pi.OrderBy, pi.CreatedAt;
@@ -4120,7 +4239,7 @@ BEGIN
 		SET @Offset = (@Page - 1) * @Limit;
 		
 		-- Validate user exists and is active
-		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Users WITH (NOLOCK) WHERE UserId = @UserId AND Active = 1)
 		BEGIN
 			RAISERROR('User not found or inactive.', 16, 1);
 			RETURN;
@@ -4128,7 +4247,7 @@ BEGIN
 		
 		-- Get total count for pagination
 		SELECT @TotalCount = COUNT(*)
-		FROM Orders o
+		FROM dbo.Orders o WITH (NOLOCK)
 		WHERE o.UserId = @UserId
 			AND o.Active = 1
 			AND (@TenantId IS NULL OR o.TenantId = @TenantId)
@@ -4162,8 +4281,8 @@ BEGIN
 			CEILING(CAST(@TotalCount AS FLOAT) / @Limit) AS TotalPages,
 			CASE WHEN @Page < CEILING(CAST(@TotalCount AS FLOAT) / @Limit) THEN 1 ELSE 0 END AS HasNext,
 			CASE WHEN @Page > 1 THEN 1 ELSE 0 END AS HasPrevious
-		FROM Orders o
-		LEFT JOIN OrderItems oi ON o.OrderId = oi.OrderId AND oi.Active = 1
+		FROM dbo.Orders o WITH (NOLOCK)
+		LEFT JOIN dbo.OrderItems oi WITH (NOLOCK) ON o.OrderId = oi.OrderId AND oi.Active = 1
 		WHERE o.UserId = @UserId
 			AND o.Active = 1
 			AND (@TenantId IS NULL OR o.TenantId = @TenantId)
@@ -4190,11 +4309,11 @@ BEGIN
 			p.Category,
 			p.Rating,
 			p.Offer
-		FROM OrderItems oi
-		LEFT JOIN Products p ON oi.ProductId = p.ProductId
+		FROM dbo.OrderItems oi WITH (NOLOCK)
+		LEFT JOIN dbo.Products p WITH (NOLOCK) ON oi.ProductId = p.ProductId
 		WHERE oi.OrderId IN (
 			SELECT o.OrderId
-			FROM Orders o
+			FROM dbo.Orders o WITH (NOLOCK)
 			WHERE o.UserId = @UserId
 				AND o.Active = 1
 				AND (@TenantId IS NULL OR o.TenantId = @TenantId)
@@ -4264,14 +4383,14 @@ BEGIN
 		BEGIN TRANSACTION;
 		
 		-- Validate user exists
-		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND Active = 1)
 		BEGIN
 			RAISERROR('User not found or inactive.', 16, 1);
 			RETURN;
 		END
 		
 		-- Validate tenant exists
-		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND TenantId = @TenantId)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND TenantId = @TenantId)
 		BEGIN
 			RAISERROR('User does not belong to the specified tenant.', 16, 1);
 			RETURN;
@@ -4293,7 +4412,7 @@ BEGIN
 		IF EXISTS (
 			SELECT 1
 			FROM @TempOrderItems t
-			LEFT JOIN Products p ON t.ProductId = p.ProductId AND p.Active = 1
+			LEFT JOIN dbo.Products p ON t.ProductId = p.ProductId AND p.Active = 1
 			WHERE p.ProductId IS NULL
 		)
 		BEGIN
@@ -4309,7 +4428,7 @@ BEGIN
 			t.Price = p.Price,
 			t.Total = p.Price * t.Quantity
 		FROM @TempOrderItems t
-		INNER JOIN Products p ON t.ProductId = p.ProductId AND p.Active = 1;
+		INNER JOIN dbo.Products p ON t.ProductId = p.ProductId AND p.Active = 1;
 
 		-- Recompute totals from verified DB prices so the stored order reflects real amounts
 		SET @Subtotal    = (SELECT SUM(Total) FROM @TempOrderItems);
@@ -4342,7 +4461,7 @@ BEGIN
 			IF @CouponId IS NULL AND @CouponCode IS NOT NULL
 			BEGIN
 				SELECT @CouponId = CouponId
-				FROM Coupons
+				FROM dbo.Coupons
 				WHERE Code = @CouponCode AND TenantId = @TenantId AND Active = 1;
 			END
 			
@@ -4354,8 +4473,8 @@ BEGIN
 			END
 		END
 		
-		-- Insert into Orders table
-		INSERT INTO Orders (
+		-- Insert into dbo.Orders table
+		INSERT INTO dbo.Orders (
 			UserId, TenantId, OrderNumber, OrderStatus, PaymentStatus, TotalAmount, Subtotal,
 			ShippingAmount, TaxAmount, DiscountAmount, CurrencyCode, Notes, SpecialInstructions,
 			OrderDate, Source, IpAddress, UserAgent, Referrer, SessionId, OrderType,
@@ -4392,8 +4511,8 @@ BEGIN
 				IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'CouponUsage')
 				BEGIN
 					BEGIN TRY
-						-- Insert into CouponUsage table
-						INSERT INTO CouponUsage (
+						-- Insert into dbo.CouponUsage table
+						INSERT INTO dbo.CouponUsage (
 							CouponId, OrderId, UserId, DiscountAmount, OrderAmount, UsedAt
 						)
 						VALUES (
@@ -4410,7 +4529,7 @@ BEGIN
 				
 				-- Update coupon usage count (this should always work if coupon exists)
 				BEGIN TRY
-					UPDATE Coupons
+					UPDATE dbo.Coupons
 					SET UsageCount = UsageCount + 1,
 						UpdatedAt = @CurrentTime
 					WHERE CouponId = @CouponId;
@@ -4434,7 +4553,7 @@ BEGIN
 			p.Quantity = p.Quantity - t.Quantity,
 			p.UserBuyCount = p.UserBuyCount + t.Quantity,
 			p.Modified = @CurrentTime
-		FROM Products p
+		FROM dbo.Products p
 		INNER JOIN @TempOrderItems t ON p.ProductId = t.ProductId
 		WHERE p.Quantity >= t.Quantity
 			AND p.Active = 1;
@@ -4448,7 +4567,7 @@ BEGIN
 		END
 
 		-- Insert order items
-		INSERT INTO OrderItems (
+		INSERT INTO dbo.OrderItems (
 			OrderId, ProductId, ProductName, ProductImage, ProductCode, Price, Quantity, Total,
 			DiscountAmount, TaxAmount, Active, CreatedAt, UpdatedAt
 		)
@@ -4458,14 +4577,14 @@ BEGIN
 		FROM @TempOrderItems;
 		
 		-- Clear user's cart items that were ordered
-		UPDATE CartItems
+		UPDATE dbo.CartItems
 		SET 
 			Active = 0,
 			UpdatedDate = @CurrentTime
 		WHERE UserId = @UserId 
 			AND ProductId IN (
 				SELECT ProductId 
-				FROM OrderItems 
+				FROM dbo.OrderItems 
 				WHERE OrderId = @OrderId AND Active = 1
 			)
 			AND Active = 1
@@ -4474,7 +4593,7 @@ BEGIN
 		-- ADDRESS MANAGEMENT: Insert shipping address into UserAddresses table
 		-- Check if this address already exists for the user
 		IF NOT EXISTS (
-			SELECT 1 FROM UserAddresses 
+			SELECT 1 FROM dbo.UserAddresses 
 			WHERE UserId = @UserId 
 				AND Street = JSON_VALUE(@ShippingAddress, '$.Address1')
 				AND City = JSON_VALUE(@ShippingAddress, '$.City')
@@ -4485,7 +4604,7 @@ BEGIN
 		)
 		BEGIN
 			-- Insert new shipping address
-			INSERT INTO UserAddresses (
+			INSERT INTO dbo.UserAddresses (
 				UserId, AddressType, Street, City, State, PostalCode, Country,
 				IsDefault, Active, CreatedAt, UpdatedAt
 			)
@@ -4504,7 +4623,7 @@ BEGIN
 			);
 			
 			-- Log address creation activity
-			INSERT INTO UserActivityLog (
+			INSERT INTO dbo.UserActivityLog (
 				UserId, ActivityType, ActivityDescription, IpAddress, UserAgent,
 				ResourceType, ResourceId, SessionId, PerformedBy, CreatedAt
 			)
@@ -4516,7 +4635,7 @@ BEGIN
 		END;
         
         -- -- Insert initial status history
-        -- INSERT INTO OrderStatusHistory (
+        -- INSERT INTO dbo.OrderStatusHistory (
         --     OrderId, PreviousStatus, NewStatus, StatusNote, ChangedBy, ChangedAt, CreatedAt
         -- )
         -- VALUES (
@@ -4524,7 +4643,7 @@ BEGIN
         -- );
         
         -- -- Insert initial tracking record
-        -- INSERT INTO OrderTracking (
+        -- INSERT INTO dbo.OrderTracking (
         --     OrderId, TrackingNumber, Carrier, TrackingStatus, EstimatedDelivery, ShippingCost,
         --     Active, CreatedAt, UpdatedAt
         -- )
@@ -4538,7 +4657,7 @@ BEGIN
         --     @ShippingAmount, 1, @CurrentTime, @CurrentTime;
         
         -- -- Log the order creation activity
-        -- INSERT INTO UserActivityLog (
+        -- INSERT INTO dbo.UserActivityLog (
         --     UserId, ActivityType, ActivityDescription, IpAddress, UserAgent,
         --     ResourceType, ResourceId, SessionId, PerformedBy, CreatedAt
         -- )
@@ -4549,7 +4668,7 @@ BEGIN
         -- );
         
         -- -- Log inventory update activity for each product
-        -- INSERT INTO UserActivityLog (
+        -- INSERT INTO dbo.UserActivityLog (
         --     UserId, ActivityType, ActivityDescription, IpAddress, UserAgent,
         --     ResourceType, ResourceId, SessionId, PerformedBy, CreatedAt
         -- )
@@ -4557,8 +4676,8 @@ BEGIN
         --     @UserId, 'INVENTORY_UPDATED',
         --     'Inventory reduced for product: ' + p.ProductName + ' by ' + CAST(oi.Quantity AS NVARCHAR(10)) + ' units (Order: ' + @OrderNumber + ')',
         --     @IpAddress, @UserAgent, 'Product', p.ProductId, @SessionId, @UserId, @CurrentTime
-        -- FROM Products p
-        -- INNER JOIN OrderItems oi ON p.ProductId = oi.ProductId
+        -- FROM dbo.Products p
+        -- INNER JOIN dbo.OrderItems oi ON p.ProductId = oi.ProductId
         -- WHERE oi.OrderId = @OrderId AND oi.Active = 1;
         
         COMMIT TRANSACTION;
@@ -4581,7 +4700,7 @@ BEGIN
             ROLLBACK TRANSACTION;
             
         -- Log the error
-        INSERT INTO UserActivityLog (
+        INSERT INTO dbo.UserActivityLog (
             UserId, ActivityType, ActivityDescription, IpAddress, UserAgent,
             SessionId, PerformedBy, CreatedAt
         )
@@ -4617,8 +4736,8 @@ BEGIN
         -- Validate admin user (must be active and have Admin/SuperAdmin role)
         IF NOT EXISTS (
             SELECT 1
-            FROM Users u
-            JOIN Roles r ON u.RoleId = r.RoleId
+            FROM dbo.Users u WITH (NOLOCK)
+            JOIN dbo.Roles r WITH (NOLOCK) ON u.RoleId = r.RoleId
             WHERE u.UserId = @AdminUserId
               AND r.RoleName IN ('Admin', 'SuperAdmin')
         )
@@ -4631,8 +4750,8 @@ BEGIN
         -- Total count (do not hard-filter Users.Active = 1; let @Status decide)
         ---------------------------------------------------------------------
         SELECT @TotalCount = COUNT(*)
-        FROM Users u
-        LEFT JOIN Roles r ON u.RoleId = r.RoleId AND r.Active = 1
+        FROM dbo.Users u WITH (NOLOCK)
+        LEFT JOIN dbo.Roles r WITH (NOLOCK) ON u.RoleId = r.RoleId AND r.Active = 1
         WHERE (@TenantId IS NULL OR u.TenantId = @TenantId)
 
         SELECT
@@ -4662,8 +4781,8 @@ BEGIN
             CEILING(CAST(@TotalCount AS FLOAT) / @Limit) AS TotalPages,
             CASE WHEN @Page < CEILING(CAST(@TotalCount AS FLOAT) / @Limit) THEN 1 ELSE 0 END AS HasNext,
             CASE WHEN @Page > 1 THEN 1 ELSE 0 END AS HasPrevious
-        FROM Users u
-        LEFT JOIN Roles r ON u.RoleId = r.RoleId AND r.Active = 1
+        FROM dbo.Users u WITH (NOLOCK)
+        LEFT JOIN dbo.Roles r WITH (NOLOCK) ON u.RoleId = r.RoleId AND r.Active = 1
         WHERE (@TenantId IS NULL OR u.TenantId = @TenantId)
 
         ORDER BY u.CreatedAt DESC
@@ -4701,8 +4820,8 @@ BEGIN
 	
 	-- Validate admin user exists and has admin role
 	IF NOT EXISTS (
-		SELECT 1 FROM Users u
-		INNER JOIN Roles r ON u.RoleId = r.RoleId
+		SELECT 1 FROM dbo.Users u
+		INNER JOIN dbo.Roles r ON u.RoleId = r.RoleId
 		WHERE u.UserId = @AdminUserId 
 			AND r.RoleName IN ('Admin', 'SuperAdmin')
 	)
@@ -4719,7 +4838,7 @@ BEGIN
 			WHEN u.Active = 0 THEN 'inactive'
 			ELSE 'active'
 		END
-	FROM Users u
+	FROM dbo.Users u
 	WHERE u.UserId = @UserId
 		AND (@TenantId IS NULL OR u.TenantId = @TenantId);
 	
@@ -4740,7 +4859,7 @@ BEGIN
 	SET @NewActive = CASE WHEN @Status = 'active' THEN 1 ELSE 0 END;
 	
 	-- Update user status
-	UPDATE Users
+	UPDATE dbo.Users
 	SET 
 		Active = @NewActive,
 		AccountLocked = CASE WHEN @Status = 'active' THEN 0 ELSE AccountLocked END,
@@ -4770,7 +4889,7 @@ BEGIN
 		-- Deactivate all UserRoles entries for this user
 		-- IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'UserRoles')
 		-- BEGIN
-		-- 	UPDATE UserRoles 
+		-- 	UPDATE dbo.UserRoles 
 		-- 	SET Active = 0,
 		-- 		UpdatedAt = @CurrentTime
 		-- 	WHERE UserId = @UserId 
@@ -4778,7 +4897,7 @@ BEGIN
 		-- END
 		
 		-- Clear remember me sessions
-		UPDATE Users 
+		UPDATE dbo.Users 
 		SET RememberMeToken = NULL,
 			RememberMeExpiry = NULL,
 			LastLogout = @CurrentTime
@@ -4786,7 +4905,7 @@ BEGIN
 	END
 	
 -- -- Log the status change activity
--- INSERT INTO UserActivityLog (
+-- INSERT INTO dbo.UserActivityLog (
 -- 	UserId,
 -- 	ActivityType,
 -- 	ActivityDescription,
@@ -4806,7 +4925,7 @@ BEGIN
 -- );
 
 -- -- Log admin activity
--- INSERT INTO UserActivityLog (
+-- INSERT INTO dbo.UserActivityLog (
 -- 	UserId,
 -- 	ActivityType,
 -- 	ActivityDescription,
@@ -4864,8 +4983,8 @@ BEGIN
 		
 		-- Validate admin user exists and has admin role
 		IF NOT EXISTS (
-			SELECT 1 FROM Users u
-			INNER JOIN Roles r ON u.RoleId = r.RoleId
+			SELECT 1 FROM dbo.Users u WITH (NOLOCK)
+			INNER JOIN dbo.Roles r WITH (NOLOCK) ON u.RoleId = r.RoleId
 			WHERE u.UserId = @AdminUserId 
 				AND u.Active = 1 
 				AND r.RoleName IN ('Admin', 'SuperAdmin')
@@ -4886,14 +5005,15 @@ BEGIN
 		
 		-- Get total count for pagination
 		SELECT @TotalCount = COUNT(*)
-		FROM Orders o
-		INNER JOIN Users u ON o.UserId = u.UserId
+		FROM dbo.Orders o WITH (NOLOCK)
+		INNER JOIN dbo.Users u WITH (NOLOCK) ON o.UserId = u.UserId
 		WHERE o.Active = 1
 			AND (@TenantId IS NULL OR o.TenantId = @TenantId)
 			AND (@Status IS NULL OR o.OrderStatus = @Status)
-			AND (@Search IS NULL OR 
-				o.OrderNumber LIKE '%' + @Search + '%' OR 
-				u.FirstName + ' ' + u.LastName LIKE '%' + @Search + '%' OR
+			AND (@Search IS NULL OR
+				o.OrderNumber LIKE '%' + @Search + '%' OR
+				u.FirstName LIKE '%' + @Search + '%' OR
+				u.LastName LIKE '%' + @Search + '%' OR
 				u.Email LIKE '%' + @Search + '%'
 			)
 			AND o.CreatedAt >= @StartDate
@@ -4944,23 +5064,24 @@ BEGIN
 			CEILING(CAST(@TotalCount AS FLOAT) / @Limit) AS TotalPages,
 			CASE WHEN @Page < CEILING(CAST(@TotalCount AS FLOAT) / @Limit) THEN 1 ELSE 0 END AS HasNext,
 			CASE WHEN @Page > 1 THEN 1 ELSE 0 END AS HasPrevious
-		FROM Orders o
-		INNER JOIN Users u ON o.UserId = u.UserId
+		FROM dbo.Orders o WITH (NOLOCK)
+		INNER JOIN dbo.Users u WITH (NOLOCK) ON o.UserId = u.UserId
 		LEFT JOIN (
 			SELECT 
 				oi.OrderId,
 				COUNT(oi.OrderItemId) AS ItemCount,
 				SUM(oi.Quantity) AS TotalQuantity
-			FROM OrderItems oi
+			FROM dbo.OrderItems oi WITH (NOLOCK)
 			WHERE oi.Active = 1
 			GROUP BY oi.OrderId
 		) orderItems ON o.OrderId = orderItems.OrderId
 		WHERE o.Active = 1
 			AND (@TenantId IS NULL OR o.TenantId = @TenantId)
 			AND (@Status IS NULL OR o.OrderStatus = @Status)
-			AND (@Search IS NULL OR 
-				o.OrderNumber LIKE '%' + @Search + '%' OR 
-				u.FirstName + ' ' + u.LastName LIKE '%' + @Search + '%' OR
+			AND (@Search IS NULL OR
+				o.OrderNumber LIKE '%' + @Search + '%' OR
+				u.FirstName LIKE '%' + @Search + '%' OR
+				u.LastName LIKE '%' + @Search + '%' OR
 				u.Email LIKE '%' + @Search + '%'
 			)
 			AND o.CreatedAt >= @StartDate
@@ -4983,18 +5104,19 @@ BEGIN
 			p.Category,
 			p.Rating,
 			p.Offer
-		FROM OrderItems oi
-		LEFT JOIN Products p ON oi.ProductId = p.ProductId
+		FROM dbo.OrderItems oi WITH (NOLOCK)
+		LEFT JOIN dbo.Products p WITH (NOLOCK) ON oi.ProductId = p.ProductId
 		WHERE oi.OrderId IN (
 			SELECT o.OrderId
-			FROM Orders o
-			INNER JOIN Users u ON o.UserId = u.UserId
+			FROM dbo.Orders o WITH (NOLOCK)
+			INNER JOIN dbo.Users u WITH (NOLOCK) ON o.UserId = u.UserId
 			WHERE o.Active = 1
 				AND (@TenantId IS NULL OR o.TenantId = @TenantId)
 				AND (@Status IS NULL OR o.OrderStatus = @Status)
-				AND (@Search IS NULL OR 
-					o.OrderNumber LIKE '%' + @Search + '%' OR 
-					u.FirstName + ' ' + u.LastName LIKE '%' + @Search + '%' OR
+				AND (@Search IS NULL OR
+					o.OrderNumber LIKE '%' + @Search + '%' OR
+					u.FirstName LIKE '%' + @Search + '%' OR
+					u.LastName LIKE '%' + @Search + '%' OR
 					u.Email LIKE '%' + @Search + '%'
 				)
 				AND o.CreatedAt >= @StartDate
@@ -5017,7 +5139,7 @@ BEGIN
 			SUM(CASE WHEN o.OrderStatus = 'Shipped' THEN 1 ELSE 0 END) AS ShippedOrders,
 			SUM(CASE WHEN o.OrderStatus = 'Delivered' THEN 1 ELSE 0 END) AS DeliveredOrders,
 			SUM(CASE WHEN o.OrderStatus = 'Cancelled' THEN 1 ELSE 0 END) AS CancelledOrders
-		FROM Orders o
+		FROM dbo.Orders o WITH (NOLOCK)
 		WHERE o.Active = 1
 			AND (@TenantId IS NULL OR o.TenantId = @TenantId)
 			AND o.CreatedAt >= @StartDate
@@ -5075,21 +5197,21 @@ BEGIN
 		END
 		
 		-- -- Validate UserId if provided
-		-- IF @UserId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		-- IF @UserId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND Active = 1)
 		-- BEGIN
 		-- 	RAISERROR('Invalid User ID provided', 16, 1);
 		-- 	RETURN;
 		-- END
 		
 		-- -- Validate OrderId if provided
-		-- IF @OrderId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM Orders WHERE OrderId = @OrderId AND Active = 1)
+		-- IF @OrderId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.Orders WHERE OrderId = @OrderId AND Active = 1)
 		-- BEGIN
 		-- 	RAISERROR('Invalid Order ID provided', 16, 1);
 		-- 	RETURN;
 		-- END
 		
 		-- -- Check if Razorpay Order ID already exists
-		-- IF EXISTS (SELECT 1 FROM RazorpayOrders WHERE RazorpayOrderId = @RazorpayOrderId)
+		-- IF EXISTS (SELECT 1 FROM dbo.RazorpayOrders WHERE RazorpayOrderId = @RazorpayOrderId)
 		-- BEGIN
 		-- 	RAISERROR('Razorpay Order ID already exists', 16, 1);
 		-- 	RETURN;
@@ -5102,7 +5224,7 @@ BEGIN
 		END
 		
 		-- Insert Razorpay order record
-		INSERT INTO RazorpayOrders (
+		INSERT INTO dbo.RazorpayOrders (
 			RazorpayOrderId,
 			Amount,
 			Currency,
@@ -5146,7 +5268,7 @@ BEGIN
 			Receipt,
 			Status,
 			CreatedAt
-		FROM RazorpayOrders
+		FROM dbo.RazorpayOrders
 		WHERE Id = @Id;
 		
 	END TRY
@@ -5208,13 +5330,13 @@ BEGIN
 		
 		-- Check if payment already exists
 		SELECT @ExistingPaymentId = Id 
-		FROM RazorpayPayments 
+		FROM dbo.RazorpayPayments 
 		WHERE RazorpayPaymentId = @RazorpayPaymentId;
 		
 		IF @ExistingPaymentId IS NOT NULL
 		BEGIN
 			-- Update existing payment record
-			UPDATE RazorpayPayments
+			UPDATE dbo.RazorpayPayments
 			SET 
 				Signature = @Signature,
 				SignatureVerified = @SignatureVerified,
@@ -5233,44 +5355,44 @@ BEGIN
 		ELSE
 		BEGIN
 			-- Validate UserId if provided
-			IF @UserId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+			IF @UserId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND Active = 1)
 			BEGIN
 				RAISERROR('Invalid User ID provided', 16, 1);
 				RETURN;
 			END
 			
 			-- Validate OrderId if provided
-			IF @OrderId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM Orders WHERE OrderId = @OrderId AND Active = 1)
+			IF @OrderId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.Orders WHERE OrderId = @OrderId AND Active = 1)
 			BEGIN
 				RAISERROR('Invalid Order ID provided', 16, 1);
 				RETURN;
 			END
 			
-			-- Look up RazorpayOrderRecordId from RazorpayOrders table if not provided
+			-- Look up RazorpayOrderRecordId from dbo.RazorpayOrders table if not provided
 			IF @RazorpayOrderRecordId IS NULL
 			BEGIN
 				SELECT @RazorpayOrderRecordId = Id
-				FROM RazorpayOrders
+				FROM dbo.RazorpayOrders
 				WHERE RazorpayOrderId = @RazorpayOrderId AND Active = 1;
 			END
 			
 			-- Validate RazorpayOrderRecordId if provided
-			IF @RazorpayOrderRecordId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM RazorpayOrders WHERE Id = @RazorpayOrderRecordId AND Active = 1)
+			IF @RazorpayOrderRecordId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.RazorpayOrders WHERE Id = @RazorpayOrderRecordId AND Active = 1)
 			BEGIN
 				RAISERROR('Invalid Razorpay Order Record ID provided', 16, 1);
 				RETURN;
 			END
 			
-			-- Get amount from RazorpayOrders if not provided
+			-- Get amount from dbo.RazorpayOrders if not provided
 			IF @Amount IS NULL AND @RazorpayOrderRecordId IS NOT NULL
 			BEGIN
 				SELECT @Amount = Amount, @Currency = Currency
-				FROM RazorpayOrders
+				FROM dbo.RazorpayOrders
 				WHERE Id = @RazorpayOrderRecordId;
 			END
 			
 			-- Insert new payment record
-			INSERT INTO RazorpayPayments (
+			INSERT INTO dbo.RazorpayPayments (
 				RazorpayPaymentId,
 				RazorpayOrderId,
 				Amount,
@@ -5327,7 +5449,7 @@ BEGIN
 			SignatureVerified,
 			VerifiedAt,
 			CreatedAt
-		FROM RazorpayPayments
+		FROM dbo.RazorpayPayments
 		WHERE Id = @Id;
 		
 	END TRY
@@ -5375,7 +5497,7 @@ BEGIN
 		IF @OrderId IS NULL AND @OrderNumber IS NOT NULL
 		BEGIN
 			SELECT @ResolvedOrderId = OrderId
-			FROM Orders
+			FROM dbo.Orders
 			WHERE OrderNumber = @OrderNumber AND Active = 1;
 			
 			IF @ResolvedOrderId IS NULL
@@ -5391,9 +5513,9 @@ BEGIN
 		-- Resolve OrderId from RazorpayOrderId if OrderId and OrderNumber are both NULL
 		ELSE IF @OrderId IS NULL AND @OrderNumber IS NULL AND @RazorpayOrderId IS NOT NULL
 		BEGIN
-			-- Try to get OrderId from RazorpayOrders table
+			-- Try to get OrderId from dbo.RazorpayOrders table
 			SELECT TOP 1 @ResolvedOrderId = OrderId
-			FROM RazorpayOrders
+			FROM dbo.RazorpayOrders
 			WHERE RazorpayOrderId = @RazorpayOrderId AND Active = 1
 			ORDER BY CreatedAt DESC;
 			
@@ -5401,13 +5523,13 @@ BEGIN
 			IF @ResolvedOrderId IS NULL
 			BEGIN
 				SELECT TOP 1 @ResolvedOrderId = OrderId
-				FROM RazorpayPayments
+				FROM dbo.RazorpayPayments
 				WHERE RazorpayOrderId = @RazorpayOrderId AND OrderId IS NOT NULL
 				ORDER BY CreatedAt DESC;
 			END
 			
 			-- If OrderId is still NULL, it means order doesn't exist yet (e.g., payment cancelled before order creation)
-			-- In this case, we'll just update RazorpayOrders/RazorpayPayments tables and return success
+			-- In this case, we'll just update dbo.RazorpayOrders/RazorpayPayments tables and return success
 			-- This is a valid scenario for payment cancellations
 		END
 		ELSE
@@ -5426,7 +5548,7 @@ BEGIN
 				@OrderTenantId = TenantId,
 				@ResolvedOrderNumber = OrderNumber,
 				@OrderCouponId = CouponId
-			FROM Orders
+			FROM dbo.Orders
 			WHERE OrderId = @ResolvedOrderId AND Active = 1;
 			
 			IF @CurrentOrderStatus IS NULL
@@ -5454,8 +5576,8 @@ BEGIN
 						ELSE 0
 					END,
 					p.Modified = @CurrentTime
-				FROM Products p
-				INNER JOIN OrderItems oi ON p.ProductId = oi.ProductId
+				FROM dbo.Products p
+				INNER JOIN dbo.OrderItems oi ON p.ProductId = oi.ProductId
 				WHERE oi.OrderId = @ResolvedOrderId 
 					AND oi.Active = 1
 					AND p.Active = 1;
@@ -5464,14 +5586,14 @@ BEGIN
 				IF @OrderCouponId IS NOT NULL
 				BEGIN
 					BEGIN TRY
-						UPDATE Coupons
+						UPDATE dbo.Coupons
 						SET UsageCount = CASE WHEN UsageCount > 0 THEN UsageCount - 1 ELSE 0 END,
 							UpdatedAt = @CurrentTime
 						WHERE CouponId = @OrderCouponId;
 						
 						IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'CouponUsage')
 						BEGIN
-							DELETE FROM CouponUsage
+							DELETE FROM dbo.CouponUsage
 							WHERE OrderId = @ResolvedOrderId AND CouponId = @OrderCouponId;
 						END
 					END TRY
@@ -5481,8 +5603,8 @@ BEGIN
 				END
 			END
 			
-			-- Update Orders table
-			UPDATE Orders
+			-- Update dbo.Orders table
+			UPDATE dbo.Orders
 			SET 
 				OrderStatus = ISNULL(@Status, OrderStatus),
 				PaymentStatus = ISNULL(@PaymentStatus, PaymentStatus),
@@ -5492,11 +5614,11 @@ BEGIN
 			WHERE OrderId = @ResolvedOrderId;
 		END
 		
-		-- Resolve RazorpayOrderId from RazorpayPayments if only RazorpayPaymentId is provided
+		-- Resolve RazorpayOrderId from dbo.RazorpayPayments if only RazorpayPaymentId is provided
 		IF @RazorpayOrderId IS NULL AND @RazorpayPaymentId IS NOT NULL
 		BEGIN
 			SELECT @ResolvedRazorpayOrderId = RazorpayOrderId
-			FROM RazorpayPayments
+			FROM dbo.RazorpayPayments
 			WHERE RazorpayPaymentId = @RazorpayPaymentId;
 		END
 		ELSE IF @RazorpayOrderId IS NOT NULL
@@ -5504,10 +5626,10 @@ BEGIN
 			SET @ResolvedRazorpayOrderId = @RazorpayOrderId;
 		END
 		
-		-- Update RazorpayOrders table if RazorpayOrderId is available
+		-- Update dbo.RazorpayOrders table if RazorpayOrderId is available
 		IF @ResolvedRazorpayOrderId IS NOT NULL
 		BEGIN
-			UPDATE RazorpayOrders
+			UPDATE dbo.RazorpayOrders
 			SET 
 				OrderId = @ResolvedOrderId,
 				Status = CASE 
@@ -5521,10 +5643,10 @@ BEGIN
 			WHERE RazorpayOrderId = @ResolvedRazorpayOrderId AND Active = 1;
 		END
 		
-		-- Update RazorpayPayments table if RazorpayPaymentId is provided
+		-- Update dbo.RazorpayPayments table if RazorpayPaymentId is provided
 		IF @RazorpayPaymentId IS NOT NULL
 		BEGIN
-			UPDATE RazorpayPayments
+			UPDATE dbo.RazorpayPayments
 			SET 
 				OrderId = @ResolvedOrderId,
 				Status = CASE 
@@ -5544,7 +5666,7 @@ BEGIN
 		-- Add status history record if status changed (only if order exists)
 		IF @ResolvedOrderId IS NOT NULL AND @Status IS NOT NULL AND @Status != @CurrentOrderStatus
 		BEGIN
-			INSERT INTO OrderStatusHistory (
+			INSERT INTO dbo.OrderStatusHistory (
 				OrderId,
 				PreviousStatus,
 				NewStatus,
@@ -5578,7 +5700,7 @@ BEGIN
 				UpdatedAt,
 				@UpdatedBy AS UpdatedBy,
 				'Order status updated successfully' AS Message
-			FROM Orders
+			FROM dbo.Orders
 			WHERE OrderId = @ResolvedOrderId;
 		END
 		ELSE
@@ -5620,7 +5742,7 @@ BEGIN
 	
 	BEGIN TRY
 		-- Validate user exists and is active
-		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Users WITH (NOLOCK) WHERE UserId = @UserId AND Active = 1)
 		BEGIN
 			RAISERROR('User not found or inactive.', 16, 1);
 			RETURN;
@@ -5628,7 +5750,7 @@ BEGIN
 		
 		-- Validate order exists and belongs to user
 		IF NOT EXISTS (
-			SELECT 1 FROM Orders 
+			SELECT 1 FROM dbo.Orders WITH (NOLOCK) 
 			WHERE OrderId = @OrderId 
 				AND UserId = @UserId 
 				AND Active = 1
@@ -5667,9 +5789,9 @@ BEGIN
 			-- Calculate totals
 			COUNT(oi.OrderItemId) AS TotalItems,
 			ISNULL(SUM(oi.Quantity), 0) AS TotalQuantity
-		FROM Orders o
-		LEFT JOIN Users u ON o.UserId = u.UserId
-		LEFT JOIN OrderItems oi ON o.OrderId = oi.OrderId AND oi.Active = 1
+		FROM dbo.Orders o WITH (NOLOCK)
+		LEFT JOIN dbo.Users u WITH (NOLOCK) ON o.UserId = u.UserId
+		LEFT JOIN dbo.OrderItems oi WITH (NOLOCK) ON o.OrderId = oi.OrderId AND oi.Active = 1
 		WHERE o.OrderId = @OrderId
 			AND o.UserId = @UserId
 			AND o.Active = 1
@@ -5698,8 +5820,8 @@ BEGIN
 			p.Offer,
 			p.InStock,
 			p.BestSeller
-		FROM OrderItems oi
-		LEFT JOIN Products p ON oi.ProductId = p.ProductId
+		FROM dbo.OrderItems oi WITH (NOLOCK)
+		LEFT JOIN dbo.Products p WITH (NOLOCK) ON oi.ProductId = p.ProductId
 		WHERE oi.OrderId = @OrderId
 			AND oi.Active = 1
 		ORDER BY oi.OrderItemId;
@@ -5713,8 +5835,8 @@ BEGIN
 			osh.ChangedBy,
 			osh.ChangedAt,
 			u.FirstName + ' ' + u.LastName AS ChangedByName
-		FROM OrderStatusHistory osh
-		LEFT JOIN Users u ON osh.ChangedBy = u.UserId
+		FROM dbo.OrderStatusHistory osh WITH (NOLOCK)
+		LEFT JOIN dbo.Users u WITH (NOLOCK) ON osh.ChangedBy = u.UserId
 		WHERE osh.OrderId = @OrderId
 		ORDER BY osh.ChangedAt DESC;
 		
@@ -5729,7 +5851,7 @@ BEGIN
 			ot.TrackingUrl,
 			ot.CreatedAt,
 			ot.UpdatedAt
-		FROM OrderTracking ot
+		FROM dbo.OrderTracking ot WITH (NOLOCK)
 		WHERE ot.OrderId = @OrderId
 			AND ot.Active = 1
 		ORDER BY ot.CreatedAt DESC;
@@ -5779,7 +5901,7 @@ BEGIN
 		END
 		
 		-- Validate user exists and is active (for customer updates only)
-		IF @UserId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		IF @UserId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND Active = 1)
 		BEGIN
 			RAISERROR('User not found or inactive.', 16, 1);
 			RETURN;
@@ -5790,7 +5912,7 @@ BEGIN
 			@CurrentStatus = OrderStatus,
 			@OrderNumber = OrderNumber,
 			@PaymentStatus = PaymentStatus
-		FROM Orders 
+		FROM dbo.Orders 
 		WHERE OrderId = @OrderId 
 			AND (@UserId IS NULL OR UserId = @UserId)  -- Allow admin updates without user restriction
 			AND Active = 1
@@ -5841,7 +5963,7 @@ BEGIN
 		END
 		
 		-- Update order status
-		UPDATE Orders
+		UPDATE dbo.Orders
 		SET 
 			OrderStatus = @NewStatus,
 			UpdatedAt = @CurrentTime,
@@ -5869,8 +5991,8 @@ BEGIN
 					ELSE 0
 				END,
 				p.Modified = @CurrentTime
-			FROM Products p
-			INNER JOIN OrderItems oi ON p.ProductId = oi.ProductId
+			FROM dbo.Products p
+			INNER JOIN dbo.OrderItems oi ON p.ProductId = oi.ProductId
 			WHERE oi.OrderId = @OrderId 
 				AND oi.Active = 1
 				AND p.Active = 1;
@@ -5878,20 +6000,20 @@ BEGIN
 			-- Restore coupon if used
 			DECLARE @OrderCouponId BIGINT = NULL;
 			SELECT @OrderCouponId = CouponId
-			FROM Orders
+			FROM dbo.Orders
 			WHERE OrderId = @OrderId;
 			
 			IF @OrderCouponId IS NOT NULL
 			BEGIN
 				BEGIN TRY
-					UPDATE Coupons
+					UPDATE dbo.Coupons
 					SET UsageCount = CASE WHEN UsageCount > 0 THEN UsageCount - 1 ELSE 0 END,
 						UpdatedAt = @CurrentTime
 					WHERE CouponId = @OrderCouponId;
 					
 					IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'CouponUsage')
 					BEGIN
-						DELETE FROM CouponUsage
+						DELETE FROM dbo.CouponUsage
 						WHERE OrderId = @OrderId AND CouponId = @OrderCouponId;
 					END
 				END TRY
@@ -5904,7 +6026,7 @@ BEGIN
 		-- Add status history record
 		IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'OrderStatusHistory')
 		BEGIN
-			INSERT INTO OrderStatusHistory (
+			INSERT INTO dbo.OrderStatusHistory (
 				OrderId,
 				PreviousStatus,
 				NewStatus,
@@ -5926,7 +6048,7 @@ BEGIN
 		-- Add tracking information if provided
 		IF @TrackingNumber IS NOT NULL AND EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'OrderTracking')
 		BEGIN
-			INSERT INTO OrderTracking (
+			INSERT INTO dbo.OrderTracking (
 				OrderId,
 				TrackingNumber,
 				Carrier,
@@ -5958,7 +6080,7 @@ BEGIN
 			@StatusNote AS StatusNote,
 			ISNULL(@UpdatedBy, @UserId) AS UpdatedBy,
 			@CurrentTime AS UpdatedDate
-		FROM Orders
+		FROM dbo.Orders
 		WHERE OrderId = @OrderId;
 		
 	END TRY
@@ -5998,7 +6120,7 @@ BEGIN
 		DECLARE @OrderCouponId BIGINT = NULL;
 		
 		-- Validate user exists and is active
-		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND Active = 1)
 		BEGIN
 			RAISERROR('User not found or inactive.', 16, 1);
 			RETURN;
@@ -6011,7 +6133,7 @@ BEGIN
 			@TotalAmount = TotalAmount,
 			@PaymentStatus = PaymentStatus,
 			@OrderCouponId = CouponId
-		FROM Orders 
+		FROM dbo.Orders 
 		WHERE OrderId = @OrderId 
 			AND UserId = @UserId 
 			AND Active = 1
@@ -6049,8 +6171,8 @@ BEGIN
 					ELSE 0
 				END,
 				p.Modified = @CurrentTime
-			FROM Products p
-			INNER JOIN OrderItems oi ON p.ProductId = oi.ProductId
+			FROM dbo.Products p
+			INNER JOIN dbo.OrderItems oi ON p.ProductId = oi.ProductId
 			WHERE oi.OrderId = @OrderId 
 				AND oi.Active = 1
 				AND p.Active = 1;
@@ -6059,14 +6181,14 @@ BEGIN
 			IF @OrderCouponId IS NOT NULL
 			BEGIN
 				BEGIN TRY
-					UPDATE Coupons
+					UPDATE dbo.Coupons
 					SET UsageCount = CASE WHEN UsageCount > 0 THEN UsageCount - 1 ELSE 0 END,
 						UpdatedAt = @CurrentTime
 					WHERE CouponId = @OrderCouponId;
 					
 					IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'CouponUsage')
 					BEGIN
-						DELETE FROM CouponUsage
+						DELETE FROM dbo.CouponUsage
 						WHERE OrderId = @OrderId AND CouponId = @OrderCouponId;
 					END
 				END TRY
@@ -6077,7 +6199,7 @@ BEGIN
 		END
 		
 		-- Update order status to Cancelled
-		UPDATE Orders
+		UPDATE dbo.Orders
 		SET 
 			OrderStatus = 'Cancelled',
 			PaymentStatus = CASE 
@@ -6095,7 +6217,7 @@ BEGIN
 		-- Add status history record
 		IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'OrderStatusHistory')
 		BEGIN
-			INSERT INTO OrderStatusHistory (
+			INSERT INTO dbo.OrderStatusHistory (
 				OrderId,
 				PreviousStatus,
 				NewStatus,
@@ -6176,7 +6298,7 @@ BEGIN
 		BEGIN TRANSACTION;
 		
 		-- Validate code uniqueness for tenant
-		IF EXISTS (SELECT 1 FROM Coupons WHERE Code = @Code AND TenantId = @TenantId)
+		IF EXISTS (SELECT 1 FROM dbo.Coupons WHERE Code = @Code AND TenantId = @TenantId)
 		BEGIN
 			RAISERROR('Coupon code already exists for this tenant.', 16, 1);
 			RETURN;
@@ -6203,7 +6325,7 @@ BEGIN
 		END
 		
 		-- Insert coupon
-		INSERT INTO Coupons (
+		INSERT INTO dbo.Coupons (
 			Code, Type, Value, MinAmount, MaxDiscount, Description,
 			StartDate, EndDate, UsageLimit, UsageLimitPerUser, Active,
 			TenantId, CreatedBy, UpdatedBy, CreatedAt, UpdatedAt
@@ -6223,7 +6345,7 @@ BEGIN
 			CouponId, Code, Type, Value, MinAmount, MaxDiscount, Description,
 			StartDate, EndDate, UsageLimit, UsageLimitPerUser, UsageCount,
 			Active, TenantId, CreatedBy, UpdatedBy, CreatedAt, UpdatedAt
-		FROM Coupons
+		FROM dbo.Coupons
 		WHERE CouponId = @CouponId;
 		
 	END TRY
@@ -6257,7 +6379,7 @@ BEGIN
 				WHEN GETUTCDATE() > EndDate THEN 'expired'
 				ELSE 'active'
 			END AS Status
-		FROM Coupons
+		FROM dbo.Coupons WITH (NOLOCK)
 		WHERE TenantId = @TenantId
 		ORDER BY CreatedAt DESC;
 		
@@ -6289,7 +6411,7 @@ BEGIN
 				WHEN GETUTCDATE() > EndDate THEN 'expired'
 				ELSE 'active'
 			END AS Status
-		FROM Coupons
+		FROM dbo.Coupons WITH (NOLOCK)
 		WHERE CouponId = @CouponId
 			AND (@TenantId IS NULL OR TenantId = @TenantId);
 		
@@ -6327,7 +6449,7 @@ BEGIN
 		BEGIN TRANSACTION;
 		
 		-- Validate coupon exists and belongs to tenant
-		IF NOT EXISTS (SELECT 1 FROM Coupons WHERE CouponId = @CouponId AND TenantId = @TenantId)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Coupons WHERE CouponId = @CouponId AND TenantId = @TenantId)
 		BEGIN
 			RAISERROR('Coupon not found or does not belong to this tenant.', 16, 1);
 			RETURN;
@@ -6335,7 +6457,7 @@ BEGIN
 		
 		-- Validate code uniqueness if changing code
 		IF @Code IS NOT NULL AND EXISTS (
-			SELECT 1 FROM Coupons 
+			SELECT 1 FROM dbo.Coupons 
 			WHERE Code = @Code AND TenantId = @TenantId AND CouponId != @CouponId
 		)
 		BEGIN
@@ -6351,7 +6473,7 @@ BEGIN
 		END
 		
 		-- Update coupon
-		UPDATE Coupons
+		UPDATE dbo.Coupons
 		SET 
 			Code = ISNULL(@Code, Code),
 			Type = ISNULL(@Type, Type),
@@ -6375,7 +6497,7 @@ BEGIN
 			CouponId, Code, Type, Value, MinAmount, MaxDiscount, Description,
 			StartDate, EndDate, UsageLimit, UsageLimitPerUser, UsageCount,
 			Active, TenantId, CreatedBy, UpdatedBy, CreatedAt, UpdatedAt
-		FROM Coupons
+		FROM dbo.Coupons
 		WHERE CouponId = @CouponId;
 		
 	END TRY
@@ -6404,14 +6526,14 @@ BEGIN
 		BEGIN TRANSACTION;
 		
 		-- Validate coupon exists and belongs to tenant
-		IF NOT EXISTS (SELECT 1 FROM Coupons WHERE CouponId = @CouponId AND TenantId = @TenantId)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Coupons WHERE CouponId = @CouponId AND TenantId = @TenantId)
 		BEGIN
 			RAISERROR('Coupon not found or does not belong to this tenant.', 16, 1);
 			RETURN;
 		END
 		
 		-- Soft delete (mark as inactive)
-		UPDATE Coupons
+		UPDATE dbo.Coupons
 		SET 
 			Active = 0,
 			UpdatedBy = @DeletedBy,
@@ -6475,7 +6597,7 @@ BEGIN
 			@StartDate = StartDate,
 			@EndDate = EndDate,
 			@Active = Active
-		FROM Coupons
+		FROM dbo.Coupons
 		WHERE Code = @Code AND TenantId = @TenantId;
 		
 		-- Check if coupon exists
@@ -6794,7 +6916,7 @@ BEGIN
 	
 	BEGIN TRY
 		SELECT TOP 1 OrderId
-		FROM RazorpayOrders
+		FROM dbo.RazorpayOrders WITH (NOLOCK)
 		WHERE RazorpayOrderId = @RazorpayOrderId
 			AND Active = 1
 		ORDER BY CreatedAt DESC;
@@ -6817,7 +6939,7 @@ BEGIN
 	
 	BEGIN TRY
 		SELECT OrderId
-		FROM Orders
+		FROM dbo.Orders WITH (NOLOCK)
 		WHERE OrderNumber = @OrderNumber
 			AND Active = 1;
 	END TRY
@@ -6841,7 +6963,7 @@ BEGIN
 	BEGIN TRY
 		-- Check if review exists
 		IF NOT EXISTS (
-			SELECT 1 FROM ProductReviews 
+			SELECT 1 FROM dbo.ProductReviews 
 			WHERE ReviewId = @ReviewId 
 			AND Active = 1
 		)
@@ -6851,14 +6973,14 @@ BEGIN
 		END
 		
 		-- Increment helpful count
-		UPDATE ProductReviews
+		UPDATE dbo.ProductReviews
 		SET HelpfulCount = HelpfulCount + 1,
 			UpdatedAt = GETUTCDATE()
 		WHERE ReviewId = @ReviewId;
 		
 		-- Return updated helpful count
 		SELECT HelpfulCount AS Helpful
-		FROM ProductReviews
+		FROM dbo.ProductReviews
 		WHERE ReviewId = @ReviewId;
 	END TRY
 	BEGIN CATCH
@@ -6890,11 +7012,12 @@ BEGIN
         State,
         PostalCode,
         Country,
+        Phone,
         IsDefault,
         Active,
         CreatedAt,
         UpdatedAt
-    FROM UserAddresses
+    FROM dbo.UserAddresses WITH (NOLOCK)
     WHERE UserId = @UserId
         AND (@ActiveOnly = 0 OR Active = 1)
     ORDER BY IsDefault DESC, CreatedAt DESC;
@@ -6917,11 +7040,12 @@ BEGIN
         State,
         PostalCode,
         Country,
+        Phone,
         IsDefault,
         Active,
         CreatedAt,
         UpdatedAt
-    FROM UserAddresses
+    FROM dbo.UserAddresses WITH (NOLOCK)
     WHERE AddressId = @AddressId
         AND (@UserId IS NULL OR UserId = @UserId)
         AND Active = 1;
@@ -6937,6 +7061,7 @@ CREATE PROCEDURE [dbo].[SP_CREATE_USER_ADDRESS]
     @PostalCode NVARCHAR(20),
     @Country NVARCHAR(100) = 'IN',
     @IsDefault BIT = 0,
+    @Phone NVARCHAR(20) = NULL,
     @AddressId BIGINT OUTPUT
 AS
 BEGIN
@@ -6948,7 +7073,7 @@ BEGIN
         BEGIN TRANSACTION;
         
         -- Validate user exists
-        IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+        IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND Active = 1)
         BEGIN
             RAISERROR('User not found or inactive.', 16, 1);
             RETURN;
@@ -6957,19 +7082,19 @@ BEGIN
         -- If setting as default, unset other default addresses
         IF @IsDefault = 1
         BEGIN
-            UPDATE UserAddresses
+            UPDATE dbo.UserAddresses
             SET IsDefault = 0
             WHERE UserId = @UserId AND Active = 1;
         END
         
         -- If this is the first address, set as default
-        IF NOT EXISTS (SELECT 1 FROM UserAddresses WHERE UserId = @UserId AND Active = 1)
+        IF NOT EXISTS (SELECT 1 FROM dbo.UserAddresses WHERE UserId = @UserId AND Active = 1)
         BEGIN
             SET @IsDefault = 1;
         END
         
         -- Insert new address
-        INSERT INTO UserAddresses (
+        INSERT INTO dbo.UserAddresses (
             UserId,
             AddressType,
             Street,
@@ -6977,6 +7102,7 @@ BEGIN
             State,
             PostalCode,
             Country,
+            Phone,
             IsDefault,
             Active,
             CreatedAt,
@@ -6989,6 +7115,7 @@ BEGIN
             @State,
             @PostalCode,
             @Country,
+            @Phone,
             @IsDefault,
             1,
             @CurrentTime,
@@ -7017,7 +7144,8 @@ CREATE PROCEDURE [dbo].[SP_UPDATE_USER_ADDRESS]
     @PostalCode NVARCHAR(20) = NULL,
     @Country NVARCHAR(100) = NULL,
     @IsDefault BIT = NULL,
-    @Active BIT = NULL
+    @Active BIT = NULL,
+    @Phone NVARCHAR(20) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -7028,7 +7156,7 @@ BEGIN
         BEGIN TRANSACTION;
         
         -- Validate address exists and belongs to user
-        IF NOT EXISTS (SELECT 1 FROM UserAddresses WHERE AddressId = @AddressId AND UserId = @UserId)
+        IF NOT EXISTS (SELECT 1 FROM dbo.UserAddresses WHERE AddressId = @AddressId AND UserId = @UserId)
         BEGIN
             RAISERROR('Address not found or does not belong to this user.', 16, 1);
             RETURN;
@@ -7037,13 +7165,13 @@ BEGIN
         -- If setting as default, unset other default addresses
         IF @IsDefault = 1
         BEGIN
-            UPDATE UserAddresses
+            UPDATE dbo.UserAddresses
             SET IsDefault = 0
             WHERE UserId = @UserId AND AddressId != @AddressId AND Active = 1;
         END
         
         -- Update address
-        UPDATE UserAddresses
+        UPDATE dbo.UserAddresses
         SET 
             AddressType = ISNULL(@AddressType, AddressType),
             Street = ISNULL(@Street, Street),
@@ -7051,6 +7179,7 @@ BEGIN
             State = ISNULL(@State, State),
             PostalCode = ISNULL(@PostalCode, PostalCode),
             Country = ISNULL(@Country, Country),
+            Phone = ISNULL(@Phone, Phone),
             IsDefault = CASE WHEN @IsDefault IS NOT NULL THEN @IsDefault ELSE IsDefault END,
             Active = CASE WHEN @Active IS NOT NULL THEN @Active ELSE Active END,
             UpdatedAt = @CurrentTime
@@ -7077,30 +7206,30 @@ BEGIN
         BEGIN TRANSACTION;
         
         -- Validate address exists and belongs to user
-        IF NOT EXISTS (SELECT 1 FROM UserAddresses WHERE AddressId = @AddressId AND UserId = @UserId)
+        IF NOT EXISTS (SELECT 1 FROM dbo.UserAddresses WHERE AddressId = @AddressId AND UserId = @UserId)
         BEGIN
             RAISERROR('Address not found or does not belong to this user.', 16, 1);
             RETURN;
         END
         
         -- Soft delete (set Active = 0)
-        UPDATE UserAddresses
+        UPDATE dbo.UserAddresses
         SET Active = 0,
             UpdatedAt = GETUTCDATE()
         WHERE AddressId = @AddressId AND UserId = @UserId;
         
         -- If this was the default address, set another address as default
-        IF EXISTS (SELECT 1 FROM UserAddresses WHERE AddressId = @AddressId AND IsDefault = 1)
+        IF EXISTS (SELECT 1 FROM dbo.UserAddresses WHERE AddressId = @AddressId AND IsDefault = 1)
         BEGIN
             DECLARE @NewDefaultId BIGINT;
             SELECT TOP 1 @NewDefaultId = AddressId
-            FROM UserAddresses
+            FROM dbo.UserAddresses
             WHERE UserId = @UserId AND AddressId != @AddressId AND Active = 1
             ORDER BY CreatedAt DESC;
             
             IF @NewDefaultId IS NOT NULL
             BEGIN
-                UPDATE UserAddresses
+                UPDATE dbo.UserAddresses
                 SET IsDefault = 1
                 WHERE AddressId = @NewDefaultId;
             END
@@ -7134,7 +7263,7 @@ BEGIN
         DECLARE @ImageName NVARCHAR(255);
         
         -- Validate product exists and is active
-        IF NOT EXISTS (SELECT 1 FROM Products WHERE ProductId = @ProductId AND Active = 1)
+        IF NOT EXISTS (SELECT 1 FROM dbo.Products WHERE ProductId = @ProductId AND Active = 1)
         BEGIN
             RAISERROR('Product not found or inactive.', 16, 1);
             RETURN;
@@ -7142,7 +7271,7 @@ BEGIN
         
         -- Validate image exists and belongs to product
         SELECT @ImageName = ImageName
-        FROM ProductImages 
+        FROM dbo.ProductImages 
         WHERE ImageId = @ImageId AND ProductId = @ProductId AND Active = 1;
         
         IF @ImageName IS NULL
@@ -7152,35 +7281,35 @@ BEGIN
         END
         
         -- Validate user if provided
-        IF @UserId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+        IF @UserId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND Active = 1)
         BEGIN
             RAISERROR('User not found or inactive.', 16, 1);
             RETURN;
         END
         
         -- Unset all other main images for this product
-        UPDATE ProductImages
+        UPDATE dbo.ProductImages
         SET 
             Main = 0,
             Modified = @CurrentTime
         WHERE ProductId = @ProductId AND ImageId != @ImageId AND Active = 1;
         
         -- Set this image as main
-        UPDATE ProductImages
+        UPDATE dbo.ProductImages
         SET 
             Main = 1,
             Modified = @CurrentTime
         WHERE ImageId = @ImageId AND ProductId = @ProductId;
         
         -- Update product modified date
-        UPDATE Products
+        UPDATE dbo.Products
         SET Modified = @CurrentTime
         WHERE ProductId = @ProductId;
         
         -- Log activity if user provided
         IF @UserId IS NOT NULL
         BEGIN
-            INSERT INTO UserActivityLog (
+            INSERT INTO dbo.UserActivityLog (
                 UserId,
                 ActivityType,
                 ActivityDescription,
@@ -7211,7 +7340,7 @@ BEGIN
             pi.ContentType,
             pi.FileSize,
             'Image set as main successfully' AS Message
-        FROM ProductImages pi
+        FROM dbo.ProductImages pi
         WHERE pi.ImageId = @ImageId AND pi.ProductId = @ProductId;
         
         COMMIT TRANSACTION;
@@ -7237,19 +7366,19 @@ BEGIN
         BEGIN TRANSACTION;
         
         -- Validate address exists and belongs to user
-        IF NOT EXISTS (SELECT 1 FROM UserAddresses WHERE AddressId = @AddressId AND UserId = @UserId AND Active = 1)
+        IF NOT EXISTS (SELECT 1 FROM dbo.UserAddresses WHERE AddressId = @AddressId AND UserId = @UserId AND Active = 1)
         BEGIN
             RAISERROR('Address not found or does not belong to this user.', 16, 1);
             RETURN;
         END
         
         -- Unset all other default addresses
-        UPDATE UserAddresses
+        UPDATE dbo.UserAddresses
         SET IsDefault = 0
         WHERE UserId = @UserId AND AddressId != @AddressId AND Active = 1;
         
         -- Set this address as default
-        UPDATE UserAddresses
+        UPDATE dbo.UserAddresses
         SET IsDefault = 1,
             UpdatedAt = GETUTCDATE()
         WHERE AddressId = @AddressId AND UserId = @UserId;
@@ -7278,8 +7407,8 @@ BEGIN
     
     -- Get total count
     SELECT COUNT(*) AS TotalCount
-    FROM UserAddresses ua
-    INNER JOIN Users u ON ua.UserId = u.UserId
+    FROM dbo.UserAddresses ua WITH (NOLOCK)
+    INNER JOIN dbo.Users u WITH (NOLOCK) ON ua.UserId = u.UserId
     WHERE (@TenantId IS NULL OR u.TenantId = @TenantId)
         AND (@UserId IS NULL OR ua.UserId = @UserId)
         AND (@ActiveOnly = 0 OR ua.Active = 1);
@@ -7300,8 +7429,8 @@ BEGIN
         ua.Active,
         ua.CreatedAt,
         ua.UpdatedAt
-    FROM UserAddresses ua
-    INNER JOIN Users u ON ua.UserId = u.UserId
+    FROM dbo.UserAddresses ua WITH (NOLOCK)
+    INNER JOIN dbo.Users u WITH (NOLOCK) ON ua.UserId = u.UserId
     WHERE (@TenantId IS NULL OR u.TenantId = @TenantId)
         AND (@UserId IS NULL OR ua.UserId = @UserId)
         AND (@ActiveOnly = 0 OR ua.Active = 1)
@@ -7364,7 +7493,7 @@ BEGIN
     END
     
     -- Validate state exists in States table
-    IF NOT EXISTS (SELECT 1 FROM States WHERE StateCode = @State AND Active = 1)
+    IF NOT EXISTS (SELECT 1 FROM dbo.States WHERE StateCode = @State AND Active = 1)
     BEGIN
         SET @IsValid = 0;
         SET @ValidationMessage = 'Invalid state code.';
@@ -7395,7 +7524,7 @@ BEGIN
 		-- Total Orders
 		DECLARE @TotalOrders INT = 0;
 		SELECT @TotalOrders = COUNT(*)
-		FROM Orders
+		FROM dbo.Orders WITH (NOLOCK)
 		WHERE TenantId = @TenantId
 		AND Active = 1
 		AND OrderDate BETWEEN @StartDate AND @EndDate;
@@ -7403,7 +7532,7 @@ BEGIN
 		-- Total Revenue
 		DECLARE @TotalRevenue DECIMAL(18,2) = 0;
 		SELECT @TotalRevenue = ISNULL(SUM(TotalAmount), 0)
-		FROM Orders
+		FROM dbo.Orders WITH (NOLOCK)
 		WHERE TenantId = @TenantId
 		AND Active = 1
 		AND PaymentStatus = 'paid'
@@ -7412,7 +7541,7 @@ BEGIN
 		-- Total Customers
 		DECLARE @TotalCustomers INT = 0;
 		SELECT @TotalCustomers = COUNT(DISTINCT UserId)
-		FROM Orders
+		FROM dbo.Orders WITH (NOLOCK)
 		WHERE TenantId = @TenantId
 		AND Active = 1
 		AND OrderDate BETWEEN @StartDate AND @EndDate;
@@ -7420,14 +7549,14 @@ BEGIN
 		-- Total Products
 		DECLARE @TotalProducts INT = 0;
 		SELECT @TotalProducts = COUNT(*)
-		FROM Products
+		FROM dbo.Products WITH (NOLOCK)
 		WHERE TenantId = @TenantId
 		AND Active = 1;
 		
 		-- Pending Orders
 		DECLARE @PendingOrders INT = 0;
 		SELECT @PendingOrders = COUNT(*)
-		FROM Orders
+		FROM dbo.Orders WITH (NOLOCK)
 		WHERE TenantId = @TenantId
 		AND Active = 1
 		AND OrderStatus = 'pending'
@@ -7436,7 +7565,7 @@ BEGIN
 		-- Completed Orders
 		DECLARE @CompletedOrders INT = 0;
 		SELECT @CompletedOrders = COUNT(*)
-		FROM Orders
+		FROM dbo.Orders WITH (NOLOCK)
 		WHERE TenantId = @TenantId
 		AND Active = 1
 		AND OrderStatus = 'completed'
@@ -7492,7 +7621,7 @@ BEGIN
 				COUNT(*) AS OrderCount,
 				SUM(TotalAmount) AS Revenue,
 				SUM(CASE WHEN PaymentStatus = 'paid' THEN TotalAmount ELSE 0 END) AS PaidRevenue
-			FROM Orders
+			FROM dbo.Orders WITH (NOLOCK)
 			WHERE TenantId = @TenantId
 			AND Active = 1
 			AND OrderDate BETWEEN @StartDate AND @EndDate
@@ -7506,7 +7635,7 @@ BEGIN
 				COUNT(*) AS OrderCount,
 				SUM(TotalAmount) AS Revenue,
 				SUM(CASE WHEN PaymentStatus = 'paid' THEN TotalAmount ELSE 0 END) AS PaidRevenue
-			FROM Orders
+			FROM dbo.Orders WITH (NOLOCK)
 			WHERE TenantId = @TenantId
 			AND Active = 1
 			AND OrderDate BETWEEN @StartDate AND @EndDate
@@ -7520,7 +7649,7 @@ BEGIN
 				COUNT(*) AS OrderCount,
 				SUM(TotalAmount) AS Revenue,
 				SUM(CASE WHEN PaymentStatus = 'paid' THEN TotalAmount ELSE 0 END) AS PaidRevenue
-			FROM Orders
+			FROM dbo.Orders WITH (NOLOCK)
 			WHERE TenantId = @TenantId
 			AND Active = 1
 			AND OrderDate BETWEEN @StartDate AND @EndDate
@@ -7563,9 +7692,9 @@ BEGIN
 			COUNT(DISTINCT oi.OrderId) AS OrderCount,
 			p.Price,
 			p.Quantity AS StockQuantity
-		FROM OrderItems oi
-		INNER JOIN Orders o ON oi.OrderId = o.OrderId
-		INNER JOIN Products p ON oi.ProductId = p.ProductId
+		FROM dbo.OrderItems oi WITH (NOLOCK)
+		INNER JOIN dbo.Orders o WITH (NOLOCK) ON oi.OrderId = o.OrderId
+		INNER JOIN dbo.Products p WITH (NOLOCK) ON oi.ProductId = p.ProductId
 		WHERE o.TenantId = @TenantId
 		AND o.Active = 1
 		AND oi.Active = 1
@@ -7602,9 +7731,9 @@ BEGIN
 			ISNULL(o.PaymentStatus, 'Pending') AS PaymentStatus,
 			o.OrderDate,
 			ISNULL(COUNT(oi.OrderItemId), 0) AS ItemCount
-		FROM Orders o
-		INNER JOIN Users u ON o.UserId = u.UserId
-		LEFT JOIN OrderItems oi ON o.OrderId = oi.OrderId AND oi.Active = 1
+		FROM dbo.Orders o WITH (NOLOCK)
+		INNER JOIN dbo.Users u WITH (NOLOCK) ON o.UserId = u.UserId
+		LEFT JOIN dbo.OrderItems oi WITH (NOLOCK) ON o.OrderId = oi.OrderId AND oi.Active = 1
 		WHERE o.TenantId = @TenantId
 		AND o.Active = 1
 		GROUP BY o.OrderId, o.OrderNumber, o.UserId, u.FirstName, u.LastName, u.Email, 
@@ -7716,7 +7845,7 @@ BEGIN
         @MinCharge = MinCharge,
         @MaxCharge = MaxCharge,
         @FreeShippingThreshold = FreeShippingThreshold
-    FROM ShippingRates
+    FROM dbo.ShippingRates
     WHERE TenantId = @TenantId
         AND ProductType = @ProductType
         AND StateCode = @RateStateCode
@@ -7814,7 +7943,7 @@ BEGIN
     -- Get dynamic free delivery threshold from settings
     DECLARE @MaxThreshold DECIMAL(18,2);
     SELECT @MaxThreshold = CAST(SettingValue AS DECIMAL(18,2))
-    FROM AppSettings 
+    FROM dbo.AppSettings 
     WHERE SettingKey = 'FREE_DELIVERY' AND Active = 1;
     
     -- Fallback to default if not found
@@ -7830,6 +7959,153 @@ BEGIN
     -- If free shipping applies, set charge to 0
     IF @FreeShipping = 1
         SET @ShippingCharge = 0;
+END
+GO
+
+-- =============================================
+-- SP SHIPPING RATES (Admin CRUD)
+-- Manages the dbo.ShippingRates matrix that
+-- SP_CALCULATE_SHIPPING_CHARGE reads at checkout.
+-- =============================================
+CREATE OR ALTER PROCEDURE [dbo].[SP_GET_SHIPPING_RATES]
+    @TenantId BIGINT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT
+        ShippingRateId,
+        TenantId,
+        ProductType,
+        StateCode,
+        CourierType,
+        BaseCharge,
+        PerUnitCharge,
+        MinCharge,
+        MaxCharge,
+        FreeShippingThreshold,
+        Active,
+        CreatedAt,
+        UpdatedAt
+    FROM dbo.ShippingRates
+    WHERE TenantId = @TenantId
+    ORDER BY ProductType, CASE WHEN StateCode IS NULL THEN 1 ELSE 0 END, StateCode, CourierType;
+END
+GO
+
+CREATE OR ALTER PROCEDURE [dbo].[SP_UPSERT_SHIPPING_RATE]
+    @ShippingRateId BIGINT = NULL,        -- NULL or 0 => INSERT, else UPDATE
+    @TenantId BIGINT,
+    @ProductType NVARCHAR(50),            -- 'Seed' or 'Plant'
+    @StateCode NVARCHAR(10) = NULL,       -- NULL = all other states
+    @CourierType NVARCHAR(50),            -- 'Postal' or 'Other'
+    @BaseCharge DECIMAL(18,2),
+    @PerUnitCharge DECIMAL(18,2) = 0,
+    @MinCharge DECIMAL(18,2),
+    @MaxCharge DECIMAL(18,2) = NULL,
+    @FreeShippingThreshold DECIMAL(18,2) = NULL,
+    @Active BIT = 1
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- Normalise empty string state code to NULL ("all other states")
+    IF @StateCode = '' SET @StateCode = NULL;
+
+    -- Guard the unique (TenantId, ProductType, StateCode, CourierType) constraint
+    -- with a friendly error instead of a raw constraint-violation 547/2627.
+    IF EXISTS (
+        SELECT 1 FROM dbo.ShippingRates
+        WHERE TenantId = @TenantId
+            AND ProductType = @ProductType
+            AND ((StateCode IS NULL AND @StateCode IS NULL) OR StateCode = @StateCode)
+            AND CourierType = @CourierType
+            AND (@ShippingRateId IS NULL OR @ShippingRateId = 0 OR ShippingRateId <> @ShippingRateId)
+    )
+    BEGIN
+        RAISERROR('A shipping rate for this Product Type, State and Courier already exists.', 16, 1);
+        RETURN;
+    END
+
+    IF (@ShippingRateId IS NULL OR @ShippingRateId = 0)
+    BEGIN
+        INSERT INTO dbo.ShippingRates
+            (TenantId, ProductType, StateCode, CourierType, BaseCharge, PerUnitCharge,
+             MinCharge, MaxCharge, FreeShippingThreshold, Active, CreatedAt, UpdatedAt)
+        VALUES
+            (@TenantId, @ProductType, @StateCode, @CourierType, @BaseCharge, @PerUnitCharge,
+             @MinCharge, @MaxCharge, @FreeShippingThreshold, @Active, GETUTCDATE(), GETUTCDATE());
+
+        SET @ShippingRateId = SCOPE_IDENTITY();
+    END
+    ELSE
+    BEGIN
+        UPDATE dbo.ShippingRates
+        SET ProductType = @ProductType,
+            StateCode = @StateCode,
+            CourierType = @CourierType,
+            BaseCharge = @BaseCharge,
+            PerUnitCharge = @PerUnitCharge,
+            MinCharge = @MinCharge,
+            MaxCharge = @MaxCharge,
+            FreeShippingThreshold = @FreeShippingThreshold,
+            Active = @Active,
+            UpdatedAt = GETUTCDATE()
+        WHERE ShippingRateId = @ShippingRateId
+            AND TenantId = @TenantId;
+    END
+
+    -- Return the affected row so the API can echo it back
+    SELECT
+        ShippingRateId,
+        TenantId,
+        ProductType,
+        StateCode,
+        CourierType,
+        BaseCharge,
+        PerUnitCharge,
+        MinCharge,
+        MaxCharge,
+        FreeShippingThreshold,
+        Active,
+        CreatedAt,
+        UpdatedAt
+    FROM dbo.ShippingRates
+    WHERE ShippingRateId = @ShippingRateId
+        AND TenantId = @TenantId;
+END
+GO
+
+CREATE OR ALTER PROCEDURE [dbo].[SP_DELETE_SHIPPING_RATE]
+    @ShippingRateId BIGINT,
+    @TenantId BIGINT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DELETE FROM dbo.ShippingRates
+    WHERE ShippingRateId = @ShippingRateId
+        AND TenantId = @TenantId;
+
+    SELECT @@ROWCOUNT AS RowsAffected;
+END
+GO
+
+CREATE OR ALTER PROCEDURE [dbo].[SP_SET_SHIPPING_RATE_ACTIVE]
+    @ShippingRateId BIGINT,
+    @TenantId BIGINT,
+    @Active BIT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    UPDATE dbo.ShippingRates
+    SET Active = @Active,
+        UpdatedAt = GETUTCDATE()
+    WHERE ShippingRateId = @ShippingRateId
+        AND TenantId = @TenantId;
+
+    SELECT @@ROWCOUNT AS RowsAffected;
 END
 GO
 
@@ -7860,7 +8136,7 @@ BEGIN
 		
 		-- -- Check if user already reviewed this product
 		-- IF EXISTS (
-		-- 	SELECT 1 FROM ProductReviews 
+		-- 	SELECT 1 FROM dbo.ProductReviews 
 		-- 	WHERE ProductId = @ProductId 
 		-- 	AND UserId = @UserId 
 		-- 	AND Active = 1
@@ -7873,8 +8149,8 @@ BEGIN
 		-- Check if user has purchased this product (for verified purchase)
 		DECLARE @IsVerifiedPurchase BIT = 0;
 		IF EXISTS (
-			SELECT 1 FROM OrderItems oi
-			INNER JOIN Orders o ON oi.OrderId = o.OrderId
+			SELECT 1 FROM dbo.OrderItems oi
+			INNER JOIN dbo.Orders o ON oi.OrderId = o.OrderId
 			WHERE oi.ProductId = @ProductId
 			AND o.UserId = @UserId
 			AND o.PaymentStatus = 'paid'
@@ -7887,14 +8163,12 @@ BEGIN
 		
 		-- Insert review
 
-		INSERT INTO ProductReviews (
-			ProductId, UserId, Rating, ReviewTitle, ReviewText,
+		INSERT INTO dbo.ProductReviews (
 			ProductId, UserId, TenantId, Rating, ReviewTitle, ReviewText,
 			IsVerifiedPurchase, IsApproved, HelpfulCount, Active,
 			CreatedAt, UpdatedAt
 		)
 		VALUES (
-			@ProductId, @UserId, @Rating, @ReviewTitle, @ReviewText,
 			@ProductId, @UserId, @TenantId, @Rating, @ReviewTitle, @ReviewText,
 			@IsVerifiedPurchase, 1, 0, 1, -- Auto-approve reviews
 			GETUTCDATE(), GETUTCDATE()
@@ -7903,10 +8177,10 @@ BEGIN
 		DECLARE @ReviewId BIGINT = SCOPE_IDENTITY();
 		
 		-- Update product rating
-		UPDATE Products
+		UPDATE dbo.Products
 		SET Rating = (
 			SELECT AVG(CAST(Rating AS DECIMAL(3,2)))
-			FROM ProductReviews
+			FROM dbo.ProductReviews
 			WHERE ProductId = @ProductId
 			AND Active = 1
 			AND IsApproved = 1
@@ -7928,8 +8202,8 @@ BEGIN
 			pr.HelpfulCount AS Helpful,
 			pr.CreatedAt,
 			pr.UpdatedAt
-		FROM ProductReviews pr
-		INNER JOIN Users u ON pr.UserId = u.UserId
+		FROM dbo.ProductReviews pr
+		INNER JOIN dbo.Users u ON pr.UserId = u.UserId
 		WHERE pr.ReviewId = @ReviewId;
 		
 		COMMIT TRANSACTION;
@@ -7968,9 +8242,9 @@ BEGIN
 			pr.HelpfulCount AS Helpful,
 			pr.CreatedAt,
 			pr.UpdatedAt
-		FROM ProductReviews pr
-		INNER JOIN Users u ON pr.UserId = u.UserId
-		INNER JOIN Products p ON pr.ProductId = p.ProductId
+		FROM dbo.ProductReviews pr WITH (NOLOCK)
+		INNER JOIN dbo.Users u WITH (NOLOCK) ON pr.UserId = u.UserId
+		INNER JOIN dbo.Products p WITH (NOLOCK) ON pr.ProductId = p.ProductId
 		WHERE pr.ProductId = @ProductId
 		AND pr.Active = 1
 		AND pr.IsApproved = 1
@@ -8002,8 +8276,8 @@ BEGIN
 		SELECT 
 			@TotalReviews = COUNT(*),
 			@AverageRating = ISNULL(AVG(CAST(pr.Rating AS DECIMAL(3,2))), 0)
-		FROM ProductReviews pr
-		INNER JOIN Products p ON pr.ProductId = p.ProductId
+		FROM dbo.ProductReviews pr WITH (NOLOCK)
+		INNER JOIN dbo.Products p WITH (NOLOCK) ON pr.ProductId = p.ProductId
 		WHERE pr.ProductId = @ProductId
 		AND pr.Active = 1
 		AND pr.IsApproved = 1
@@ -8013,8 +8287,8 @@ BEGIN
 		SELECT 
 			pr.Rating,
 			COUNT(*) AS Count
-		FROM ProductReviews pr
-		INNER JOIN Products p ON pr.ProductId = p.ProductId
+		FROM dbo.ProductReviews pr WITH (NOLOCK)
+		INNER JOIN dbo.Products p WITH (NOLOCK) ON pr.ProductId = p.ProductId
 		WHERE pr.ProductId = @ProductId
 		AND pr.Active = 1
 		AND pr.IsApproved = 1
@@ -8040,53 +8314,56 @@ GO
 CREATE PROCEDURE [dbo].[SP_UPDATE_PRODUCT_REVIEW]
 	@ReviewId BIGINT,
 	@UserId BIGINT,
+	@TenantId BIGINT,
 	@Rating INT = NULL,
 	@ReviewTitle NVARCHAR(255) = NULL,
 	@ReviewText NVARCHAR(MAX) = NULL
 AS
 BEGIN
 	SET NOCOUNT ON;
-	
+
 	BEGIN TRY
 		BEGIN TRANSACTION;
-		
-		-- Check if review exists and belongs to user
+
+		-- Check if review exists and belongs to this user AND tenant (cross-tenant IDOR guard)
 		IF NOT EXISTS (
-			SELECT 1 FROM ProductReviews 
-			WHERE ReviewId = @ReviewId 
-			AND UserId = @UserId 
+			SELECT 1 FROM dbo.ProductReviews
+			WHERE ReviewId = @ReviewId
+			AND UserId = @UserId
+			AND TenantId = @TenantId
 			AND Active = 1
 		)
 		BEGIN
 			RAISERROR('Review not found or you do not have permission to update it', 16, 1);
 			RETURN;
 		END
-		
+
 		-- Validate rating if provided
 		IF @Rating IS NOT NULL AND (@Rating < 1 OR @Rating > 5)
 		BEGIN
 			RAISERROR('Rating must be between 1 and 5', 16, 1);
 			RETURN;
 		END
-		
+
 		-- Update review
-		UPDATE ProductReviews
-		SET 
+		UPDATE dbo.ProductReviews
+		SET
 			Rating = ISNULL(@Rating, Rating),
 			ReviewTitle = ISNULL(@ReviewTitle, ReviewTitle),
 			ReviewText = ISNULL(@ReviewText, ReviewText),
 			UpdatedAt = GETUTCDATE()
 		WHERE ReviewId = @ReviewId
-		AND UserId = @UserId;
+		AND UserId = @UserId
+		AND TenantId = @TenantId;
 		
 		DECLARE @ProductId BIGINT;
-		SELECT @ProductId = ProductId FROM ProductReviews WHERE ReviewId = @ReviewId;
+		SELECT @ProductId = ProductId FROM dbo.ProductReviews WHERE ReviewId = @ReviewId;
 		
 		-- Update product rating
-		UPDATE Products
+		UPDATE dbo.Products
 		SET Rating = (
 			SELECT AVG(CAST(Rating AS DECIMAL(3,2)))
-			FROM ProductReviews
+			FROM dbo.ProductReviews
 			WHERE ProductId = @ProductId
 			AND Active = 1
 			AND IsApproved = 1
@@ -8108,8 +8385,8 @@ BEGIN
 			pr.HelpfulCount AS Helpful,
 			pr.CreatedAt,
 			pr.UpdatedAt
-		FROM ProductReviews pr
-		INNER JOIN Users u ON pr.UserId = u.UserId
+		FROM dbo.ProductReviews pr
+		INNER JOIN dbo.Users u ON pr.UserId = u.UserId
 		WHERE pr.ReviewId = @ReviewId;
 		
 		COMMIT TRANSACTION;
@@ -8129,41 +8406,44 @@ GO
 
 CREATE PROCEDURE [dbo].[SP_DELETE_PRODUCT_REVIEW]
 	@ReviewId BIGINT,
-	@UserId BIGINT
+	@UserId BIGINT,
+	@TenantId BIGINT
 AS
 BEGIN
 	SET NOCOUNT ON;
-	
+
 	BEGIN TRY
 		BEGIN TRANSACTION;
-		
-		-- Check if review exists and belongs to user
+
+		-- Check if review exists and belongs to this user AND tenant (cross-tenant IDOR guard)
 		IF NOT EXISTS (
-			SELECT 1 FROM ProductReviews 
-			WHERE ReviewId = @ReviewId 
-			AND UserId = @UserId 
+			SELECT 1 FROM dbo.ProductReviews
+			WHERE ReviewId = @ReviewId
+			AND UserId = @UserId
+			AND TenantId = @TenantId
 			AND Active = 1
 		)
 		BEGIN
 			RAISERROR('Review not found or you do not have permission to delete it', 16, 1);
 			RETURN;
 		END
-		
+
 		DECLARE @ProductId BIGINT;
-		SELECT @ProductId = ProductId FROM ProductReviews WHERE ReviewId = @ReviewId;
-		
+		SELECT @ProductId = ProductId FROM dbo.ProductReviews WHERE ReviewId = @ReviewId;
+
 		-- Soft delete review
-		UPDATE ProductReviews
+		UPDATE dbo.ProductReviews
 		SET Active = 0,
 			UpdatedAt = GETUTCDATE()
 		WHERE ReviewId = @ReviewId
-		AND UserId = @UserId;
+		AND UserId = @UserId
+		AND TenantId = @TenantId;
 		
 		-- Update product rating
-		UPDATE Products
+		UPDATE dbo.Products
 		SET Rating = (
 			SELECT AVG(CAST(Rating AS DECIMAL(3,2)))
-			FROM ProductReviews
+			FROM dbo.ProductReviews
 			WHERE ProductId = @ProductId
 			AND Active = 1
 			AND IsApproved = 1
@@ -8186,45 +8466,9 @@ BEGIN
 END
 GO
 
-CREATE PROCEDURE [dbo].[SP_MARK_REVIEW_HELPFUL]
-	@ReviewId BIGINT,
-	@UserId BIGINT
-AS
-BEGIN
-	SET NOCOUNT ON;
-	
-	BEGIN TRY
-		-- Check if review exists
-		IF NOT EXISTS (
-	SELECT 1 FROM ProductReviews 
-			WHERE ReviewId = @ReviewId 
-			AND Active = 1
-		)
-		BEGIN
-			RAISERROR('Review not found', 16, 1);
-			RETURN;
-		END
-		
-		-- Increment helpful count
-		UPDATE ProductReviews
-		SET HelpfulCount = HelpfulCount + 1,
-			UpdatedAt = GETUTCDATE()
-		WHERE ReviewId = @ReviewId;
-		
-		-- Return updated helpful count
-		SELECT HelpfulCount AS Helpful
-		FROM ProductReviews
-		WHERE ReviewId = @ReviewId;
-	END TRY
-	BEGIN CATCH
-		DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
-		DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
-		DECLARE @ErrorState INT = ERROR_STATE();
-		
-		RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
-	END CATCH
-END
-GO
+-- (SP_MARK_REVIEW_HELPFUL is already defined earlier in this script; the
+--  duplicate definition that previously lived here has been removed to avoid
+--  "There is already an object named 'SP_MARK_REVIEW_HELPFUL'" on full re-run.)
 
 -- =============================================
 -- Request Password Reset (Generate and Send OTP)
@@ -8253,7 +8497,7 @@ BEGIN
 			@FirstName = FirstName,
 			@IsActive = Active,
 			@EmailVerified = EmailVerified
-		FROM Users 
+		FROM dbo.Users 
 		WHERE Email = @Email AND Active = 1;
 		
 		-- Always return success message (prevent email enumeration)
@@ -8271,7 +8515,7 @@ BEGIN
 		
 		-- Rate limiting: Check recent requests (max 3 per hour)
 		SELECT @RecentRequestCount = COUNT(*)
-		FROM PasswordResetOTPs
+		FROM dbo.PasswordResetOTPs
 		WHERE Email = @Email 
 			AND CreatedAt > DATEADD(HOUR, -1, @CurrentTime)
 			AND Used = 0;
@@ -8288,7 +8532,7 @@ BEGIN
 		END
 		
 		-- Invalidate any existing unused OTPs for this email
-		UPDATE PasswordResetOTPs
+		UPDATE dbo.PasswordResetOTPs
 		SET Used = 1,
 			UsedAt = @CurrentTime
 		WHERE Email = @Email 
@@ -8300,7 +8544,7 @@ BEGIN
 		SET @ExpiresAt = DATEADD(MINUTE, 10, @CurrentTime); -- 10 minutes expiration
 		
 		-- Insert OTP record
-		INSERT INTO PasswordResetOTPs (
+		INSERT INTO dbo.PasswordResetOTPs (
 			UserId,
 			Email,
 			OTP,
@@ -8319,7 +8563,7 @@ BEGIN
 		);
 		
 		-- Log the password reset request
-		INSERT INTO UserActivityLog (
+		INSERT INTO dbo.UserActivityLog (
 			UserId,
 			ActivityType,
 			ActivityDescription,
@@ -8395,7 +8639,7 @@ BEGIN
 			@ExpiresAt = ExpiresAt,
 			@Used = Used,
 			@Attempts = Attempts
-		FROM PasswordResetOTPs
+		FROM dbo.PasswordResetOTPs
 		WHERE Email = @Email 
 			AND OTP = @OTP
 			AND Used = 0;
@@ -8404,9 +8648,9 @@ BEGIN
 		IF @OtpId IS NULL OR @UserId IS NULL
 		BEGIN
 			-- Increment attempts if OTP record exists but is wrong
-			IF EXISTS (SELECT 1 FROM PasswordResetOTPs WHERE Email = @Email AND Used = 0)
+			IF EXISTS (SELECT 1 FROM dbo.PasswordResetOTPs WHERE Email = @Email AND Used = 0)
 			BEGIN
-				UPDATE PasswordResetOTPs
+				UPDATE dbo.PasswordResetOTPs
 				SET Attempts = Attempts + 1
 				WHERE Email = @Email AND Used = 0;
 			END
@@ -8425,7 +8669,7 @@ BEGIN
 		-- Check if OTP has expired
 		IF @ExpiresAt < @CurrentTime
 		BEGIN
-			UPDATE PasswordResetOTPs
+			UPDATE dbo.PasswordResetOTPs
 			SET Used = 1,
 				UsedAt = @CurrentTime
 			WHERE OtpId = @OtpId;
@@ -8437,7 +8681,7 @@ BEGIN
 		-- Check max attempts (5 attempts max)
 		IF @Attempts >= 5
 		BEGIN
-			UPDATE PasswordResetOTPs
+			UPDATE dbo.PasswordResetOTPs
 			SET Used = 1,
 				UsedAt = @CurrentTime
 			WHERE OtpId = @OtpId;
@@ -8447,7 +8691,7 @@ BEGIN
 		END
 		
 		-- Verify user is active
-		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND Active = 1)
 		BEGIN
 			RAISERROR('User account is not active.', 16, 1);
 			RETURN;
@@ -8458,7 +8702,7 @@ BEGIN
 		SET @HashedPassword = CONVERT(NVARCHAR(100), HASHBYTES('SHA2_256', CAST(@NewPassword AS NVARCHAR(100)) + @Salt), 2);
 		
 		-- Update user password
-		UPDATE Users
+		UPDATE dbo.Users
 		SET 
 			PasswordHash = @HashedPassword,
 			Salt = @Salt,
@@ -8470,14 +8714,14 @@ BEGIN
 		WHERE UserId = @UserId;
 		
 		-- Mark OTP as used
-		UPDATE PasswordResetOTPs
+		UPDATE dbo.PasswordResetOTPs
 		SET 
 			Used = 1,
 			UsedAt = @CurrentTime
 		WHERE OtpId = @OtpId;
 		
 		-- Invalidate all other unused OTPs for this user
-		UPDATE PasswordResetOTPs
+		UPDATE dbo.PasswordResetOTPs
 		SET Used = 1,
 			UsedAt = @CurrentTime
 		WHERE UserId = @UserId 
@@ -8485,7 +8729,7 @@ BEGIN
 			AND OtpId != @OtpId;
 		
 		-- Log the password reset activity
-		INSERT INTO UserActivityLog (
+		INSERT INTO dbo.UserActivityLog (
 			UserId,
 			ActivityType,
 			ActivityDescription,
@@ -8578,7 +8822,7 @@ BEGIN
 			@UserId = UserId,
 			@FirstName = FirstName,
 			@StoredPhone = Phone
-		FROM Users
+		FROM dbo.Users
 		WHERE Active = 1
 		  AND (
 			Phone = @NormalizedPhone
@@ -8596,7 +8840,7 @@ BEGIN
 
 		-- Rate limiting: max 3 OTP requests per hour per phone
 		SELECT @RecentRequestCount = COUNT(*)
-		FROM LoginOTPs
+		FROM dbo.LoginOTPs
 		WHERE Phone = @NormalizedPhone
 		  AND CreatedAt > DATEADD(HOUR, -1, @CurrentTime)
 		  AND Used = 0;
@@ -8608,7 +8852,7 @@ BEGIN
 		END
 
 		-- Invalidate existing unused OTPs for this phone
-		UPDATE LoginOTPs
+		UPDATE dbo.LoginOTPs
 		SET Used = 1,
 			UsedAt = @CurrentTime
 		WHERE Phone = @NormalizedPhone
@@ -8618,13 +8862,13 @@ BEGIN
 		SET @OTP = RIGHT('000000' + CAST(ABS(CHECKSUM(NEWID())) % 1000000 AS NVARCHAR(6)), 6);
 		SET @ExpiresAt = DATEADD(MINUTE, 10, @CurrentTime);
 
-		INSERT INTO LoginOTPs (
+		INSERT INTO dbo.LoginOTPs (
 			UserId, Phone, OTP, ExpiresAt, IpAddress, UserAgent, CreatedAt
 		) VALUES (
 			@UserId, @NormalizedPhone, @OTP, @ExpiresAt, @IpAddress, @UserAgent, @CurrentTime
 		);
 
-		INSERT INTO UserActivityLog (
+		INSERT INTO dbo.UserActivityLog (
 			UserId, ActivityType, ActivityDescription, IpAddress, UserAgent, CreatedAt
 		) VALUES (
 			@UserId, 'LOGIN_OTP_REQUESTED', 'Login OTP requested via mobile', @IpAddress, @UserAgent, @CurrentTime
@@ -8681,16 +8925,16 @@ BEGIN
 			@ExpiresAt = ExpiresAt,
 			@Used = Used,
 			@Attempts = Attempts
-		FROM LoginOTPs
+		FROM dbo.LoginOTPs
 		WHERE Phone = @NormalizedPhone
 		  AND OTP = @OTP
 		  AND Used = 0;
 
 		IF @OtpId IS NULL OR @UserId IS NULL
 		BEGIN
-			IF EXISTS (SELECT 1 FROM LoginOTPs WHERE Phone = @NormalizedPhone AND Used = 0)
+			IF EXISTS (SELECT 1 FROM dbo.LoginOTPs WHERE Phone = @NormalizedPhone AND Used = 0)
 			BEGIN
-				UPDATE LoginOTPs
+				UPDATE dbo.LoginOTPs
 				SET Attempts = Attempts + 1
 				WHERE Phone = @NormalizedPhone AND Used = 0;
 			END
@@ -8707,31 +8951,31 @@ BEGIN
 
 		IF @ExpiresAt < @CurrentTime
 		BEGIN
-			UPDATE LoginOTPs SET Used = 1, UsedAt = @CurrentTime WHERE OtpId = @OtpId;
+			UPDATE dbo.LoginOTPs SET Used = 1, UsedAt = @CurrentTime WHERE OtpId = @OtpId;
 			RAISERROR('OTP has expired. Please request a new one.', 16, 1);
 			RETURN;
 		END
 
 		IF @Attempts >= 5
 		BEGIN
-			UPDATE LoginOTPs SET Used = 1, UsedAt = @CurrentTime WHERE OtpId = @OtpId;
+			UPDATE dbo.LoginOTPs SET Used = 1, UsedAt = @CurrentTime WHERE OtpId = @OtpId;
 			RAISERROR('Too many failed attempts. Please request a new OTP.', 16, 1);
 			RETURN;
 		END
 
-		IF NOT EXISTS (SELECT 1 FROM Users WHERE UserId = @UserId AND Active = 1)
+		IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @UserId AND Active = 1)
 		BEGIN
 			RAISERROR('User account is not active.', 16, 1);
 			RETURN;
 		END
 
-		UPDATE LoginOTPs SET Used = 1, UsedAt = @CurrentTime WHERE OtpId = @OtpId;
+		UPDATE dbo.LoginOTPs SET Used = 1, UsedAt = @CurrentTime WHERE OtpId = @OtpId;
 
-		UPDATE LoginOTPs
+		UPDATE dbo.LoginOTPs
 		SET Used = 1, UsedAt = @CurrentTime
 		WHERE UserId = @UserId AND Used = 0 AND OtpId != @OtpId;
 
-		UPDATE Users
+		UPDATE dbo.Users
 		SET LoginAttempts = 0,
 			LastLogin = @CurrentTime,
 			LastLoginAttempt = @CurrentTime,
@@ -8739,7 +8983,7 @@ BEGIN
 			AccountLocked = 0
 		WHERE UserId = @UserId;
 
-		INSERT INTO UserActivityLog (
+		INSERT INTO dbo.UserActivityLog (
 			UserId, ActivityType, ActivityDescription, IpAddress, UserAgent, CreatedAt
 		) VALUES (
 			@UserId, 'LOGIN_OTP', 'User logged in successfully using mobile OTP', @IpAddress, @UserAgent, @CurrentTime
@@ -8759,8 +9003,8 @@ BEGIN
 			r.RoleName,
 			r.RoleDescription,
 			CAST(0 AS BIT) AS RememberMe
-		FROM Users u
-		LEFT JOIN Roles r ON u.RoleId = r.RoleId
+		FROM dbo.Users u
+		LEFT JOIN dbo.Roles r ON u.RoleId = r.RoleId
 		WHERE u.UserId = @UserId AND u.Active = 1;
 
 		COMMIT TRANSACTION;
@@ -8797,23 +9041,26 @@ END
 GO
 
 
-CREATE TABLE [dbo].[AppSettings](
-	[SettingId] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-	[SettingKey] NVARCHAR(100) NOT NULL,
-	[SettingValue] NVARCHAR(255) NOT NULL,
-	[TenantId] BIGINT NULL,
-	[UserId] BIGINT NULL,
-	[Active] BIT NOT NULL DEFAULT(1),
-	[CreatedAt] DATETIME NOT NULL DEFAULT(GETDATE()),
-	[UpdatedAt] DATETIME NULL
-);
-
-CREATE UNIQUE INDEX UX_AppSettings_Key ON [dbo].[AppSettings]([SettingKey], [TenantId], [UserId]);
-
-IF OBJECT_ID('dbo.SP_GET_APP_SETTINGS', 'P') IS NOT NULL
-	DROP PROCEDURE dbo.SP_GET_APP_SETTINGS;
+IF OBJECT_ID('dbo.AppSettings', 'U') IS NULL
+BEGIN
+	CREATE TABLE [dbo].[AppSettings](
+		[SettingId] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+		[SettingKey] NVARCHAR(100) NOT NULL,
+		[SettingValue] NVARCHAR(255) NOT NULL,
+		[TenantId] BIGINT NULL,
+		[UserId] BIGINT NULL,
+		[Active] BIT NOT NULL DEFAULT(1),
+		[CreatedAt] DATETIME NOT NULL DEFAULT(GETDATE()),
+		[UpdatedAt] DATETIME NULL
+	);
+END
 GO
-CREATE PROCEDURE dbo.SP_GET_APP_SETTINGS
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_AppSettings_Key' AND object_id = OBJECT_ID('dbo.AppSettings'))
+	CREATE UNIQUE INDEX UX_AppSettings_Key ON [dbo].[AppSettings]([SettingKey], [TenantId], [UserId]);
+GO
+
+CREATE OR ALTER PROCEDURE dbo.SP_GET_APP_SETTINGS
 	@TenantId BIGINT = NULL,
 	@UserId BIGINT = NULL
 AS
@@ -8821,7 +9068,7 @@ BEGIN
 	SET NOCOUNT ON;
 
 	SELECT SettingKey, SettingValue, TenantId, UserId
-	FROM AppSettings
+	FROM dbo.AppSettings WITH (NOLOCK)
 	WHERE Active = 1
 	  AND (@TenantId IS NULL OR TenantId = @TenantId)
 	  AND (@UserId IS NULL OR UserId = @UserId)
@@ -8829,10 +9076,7 @@ BEGIN
 END;
 GO
 
-IF OBJECT_ID('dbo.SP_UPSERT_APP_SETTING', 'P') IS NOT NULL
-	DROP PROCEDURE dbo.SP_UPSERT_APP_SETTING;
-GO
-CREATE PROCEDURE dbo.SP_UPSERT_APP_SETTING
+CREATE OR ALTER PROCEDURE dbo.SP_UPSERT_APP_SETTING
 	@SettingKey NVARCHAR(100),
 	@SettingValue NVARCHAR(255),
 	@TenantId BIGINT = NULL,
@@ -8842,70 +9086,70 @@ BEGIN
 	SET NOCOUNT ON;
 
 	IF EXISTS (
-		SELECT 1 FROM AppSettings
+		SELECT 1 FROM dbo.AppSettings
 		WHERE SettingKey = @SettingKey
-		  AND ISNULL(TenantId,0) = ISNULL(@TenantId,0)
-		  AND ISNULL(UserId,0) = ISNULL(@UserId,0)
+		  AND (TenantId = @TenantId OR (TenantId IS NULL AND @TenantId IS NULL))
+		  AND (UserId = @UserId OR (UserId IS NULL AND @UserId IS NULL))
 	)
 	BEGIN
-		UPDATE AppSettings
+		UPDATE dbo.AppSettings
 		SET SettingValue = @SettingValue,
 			UpdatedAt = GETDATE()
 		WHERE SettingKey = @SettingKey
-		  AND ISNULL(TenantId,0) = ISNULL(@TenantId,0)
-		  AND ISNULL(UserId,0) = ISNULL(@UserId,0);
+		  AND (TenantId = @TenantId OR (TenantId IS NULL AND @TenantId IS NULL))
+		  AND (UserId = @UserId OR (UserId IS NULL AND @UserId IS NULL));
 	END
 	ELSE
 	BEGIN
-		INSERT INTO AppSettings (SettingKey, SettingValue, TenantId, UserId, Active)
+		INSERT INTO dbo.AppSettings (SettingKey, SettingValue, TenantId, UserId, Active)
 		VALUES (@SettingKey, @SettingValue, @TenantId, @UserId, 1);
 	END
 END;
 GO
 
 -- Seed defaults
-IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'MIN_ORDER')
-	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('MIN_ORDER', '300', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.AppSettings WHERE SettingKey = 'MIN_ORDER')
+	INSERT INTO dbo.AppSettings (SettingKey, SettingValue, Active) VALUES ('MIN_ORDER', '300', 1);
 
-IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'FREE_DELIVERY')
-	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('FREE_DELIVERY', '1500', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.AppSettings WHERE SettingKey = 'FREE_DELIVERY')
+	INSERT INTO dbo.AppSettings (SettingKey, SettingValue, Active) VALUES ('FREE_DELIVERY', '1500', 1);
 
-IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'USER_LOGIN')
-	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('USER_LOGIN', 'false', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.AppSettings WHERE SettingKey = 'USER_LOGIN')
+	INSERT INTO dbo.AppSettings (SettingKey, SettingValue, Active) VALUES ('USER_LOGIN', 'false', 1);
 
-IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'LANGUAGE')
-	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('LANGUAGE', 'false', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.AppSettings WHERE SettingKey = 'LANGUAGE')
+	INSERT INTO dbo.AppSettings (SettingKey, SettingValue, Active) VALUES ('LANGUAGE', 'false', 1);
 
-IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'HEADER_SEARCH')
-	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('HEADER_SEARCH', 'false', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.AppSettings WHERE SettingKey = 'HEADER_SEARCH')
+	INSERT INTO dbo.AppSettings (SettingKey, SettingValue, Active) VALUES ('HEADER_SEARCH', 'false', 1);
 
-IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'PRODUCT_FILTER')
-	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('PRODUCT_FILTER', 'false', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.AppSettings WHERE SettingKey = 'PRODUCT_FILTER')
+	INSERT INTO dbo.AppSettings (SettingKey, SettingValue, Active) VALUES ('PRODUCT_FILTER', 'false', 1);
 
-IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'MAINTENANCE_MODE')
-	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('MAINTENANCE_MODE', 'false', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.AppSettings WHERE SettingKey = 'MAINTENANCE_MODE')
+	INSERT INTO dbo.AppSettings (SettingKey, SettingValue, Active) VALUES ('MAINTENANCE_MODE', 'false', 1);
 
-IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'MAINTENANCE_MESSAGE')
-	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('MAINTENANCE_MESSAGE', '', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.AppSettings WHERE SettingKey = 'MAINTENANCE_MESSAGE')
+	INSERT INTO dbo.AppSettings (SettingKey, SettingValue, Active) VALUES ('MAINTENANCE_MESSAGE', '', 1);
 
 -- Notifications & Email (admin-editable; secrets stay in config/env)
-IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'EMAIL_ENABLED')
-	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('EMAIL_ENABLED', 'true', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.AppSettings WHERE SettingKey = 'EMAIL_ENABLED')
+	INSERT INTO dbo.AppSettings (SettingKey, SettingValue, Active) VALUES ('EMAIL_ENABLED', 'true', 1);
 
-IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'WHATSAPP_ENABLED')
-	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('WHATSAPP_ENABLED', 'false', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.AppSettings WHERE SettingKey = 'WHATSAPP_ENABLED')
+	INSERT INTO dbo.AppSettings (SettingKey, SettingValue, Active) VALUES ('WHATSAPP_ENABLED', 'false', 1);
 
-IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'EMAIL_FROM_NAME')
-	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('EMAIL_FROM_NAME', 'Himalaya', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.AppSettings WHERE SettingKey = 'EMAIL_FROM_NAME')
+	INSERT INTO dbo.AppSettings (SettingKey, SettingValue, Active) VALUES ('EMAIL_FROM_NAME', 'Himalaya', 1);
 
-IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'EMAIL_COMPANY_NAME')
-	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('EMAIL_COMPANY_NAME', 'Himalaya Nursery', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.AppSettings WHERE SettingKey = 'EMAIL_COMPANY_NAME')
+	INSERT INTO dbo.AppSettings (SettingKey, SettingValue, Active) VALUES ('EMAIL_COMPANY_NAME', 'Himalaya Nursery', 1);
 
-IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'EMAIL_BRAND_COLOR')
-	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('EMAIL_BRAND_COLOR', '#1e7e34', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.AppSettings WHERE SettingKey = 'EMAIL_BRAND_COLOR')
+	INSERT INTO dbo.AppSettings (SettingKey, SettingValue, Active) VALUES ('EMAIL_BRAND_COLOR', '#1e7e34', 1);
 
-IF NOT EXISTS (SELECT 1 FROM AppSettings WHERE SettingKey = 'EMAIL_PUBLIC_BASE_URL')
-	INSERT INTO AppSettings (SettingKey, SettingValue, Active) VALUES ('EMAIL_PUBLIC_BASE_URL', 'https://himalayanursery.co.in', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.AppSettings WHERE SettingKey = 'EMAIL_PUBLIC_BASE_URL')
+	INSERT INTO dbo.AppSettings (SettingKey, SettingValue, Active) VALUES ('EMAIL_PUBLIC_BASE_URL', 'https://himalayanursery.co.in', 1);
 GO
 
 -- =============================================
@@ -8980,7 +9224,7 @@ BEGIN
 		CASE WHEN @SearchTerm != '' THEN CHARINDEX(@SearchTerm, p.ProductName) ELSE 0 END,
 		-- Find match position in description for highlighting
 		CASE WHEN @SearchTerm != '' THEN CHARINDEX(@SearchTerm, p.ProductDescription) ELSE 0 END
-	FROM Products p
+	FROM dbo.Products p
 	WHERE p.TenantId = @TenantId
 		AND p.Active = 1
 		-- Text search filter (includes fuzzy)
@@ -9009,8 +9253,9 @@ BEGIN
 		-- New arrivals filter (products created within X days)
 		AND (@NewArrivalsDays IS NULL OR p.Created >= DATEADD(DAY, -@NewArrivalsDays, GETUTCDATE()))
 		-- Trending filter (products with high purchase count)
-		AND (@Trending IS NULL OR @Trending = 0 OR p.UserBuyCount >= @TrendingThreshold);
-	
+		AND (@Trending IS NULL OR @Trending = 0 OR p.UserBuyCount >= @TrendingThreshold)
+		OPTION (RECOMPILE);
+
 	-- Get total count
 	SELECT @TotalCount = COUNT(*) FROM #SearchResults;
 	
@@ -9051,7 +9296,7 @@ BEGIN
 		sr.NameMatchPos,
 		sr.DescMatchPos
 	FROM #SearchResults sr
-	INNER JOIN Products p ON sr.ProductId = p.ProductId
+	INNER JOIN dbo.Products p ON sr.ProductId = p.ProductId
 	ORDER BY
 		CASE WHEN @SortBy = 'relevance' AND @SortOrder = 'desc' THEN sr.RelevanceScore END DESC,
 		CASE WHEN @SortBy = 'relevance' AND @SortOrder = 'asc' THEN sr.RelevanceScore END ASC,
@@ -9070,7 +9315,8 @@ BEGIN
 		sr.RelevanceScore DESC,
 		p.ProductName ASC
 	OFFSET @Offset ROWS
-	FETCH NEXT @Limit ROWS ONLY;
+	FETCH NEXT @Limit ROWS ONLY
+	OPTION (RECOMPILE);
 	
 	-- Return pagination metadata
 	SELECT 
@@ -9136,7 +9382,7 @@ BEGIN
 		CASE WHEN p.BestSeller = 1 THEN 10 ELSE 0 END +
 		CASE WHEN p.UserBuyCount > 10 THEN 5 ELSE 0 END,
 		p.Price
-	FROM Products p
+	FROM dbo.Products p
 	WHERE p.TenantId = @TenantId
 		AND p.Active = 1
 		AND p.Quantity > 0
@@ -9159,7 +9405,7 @@ BEGIN
 			WHEN c.CategoryName LIKE @SearchTerm + '%' THEN 90
 			ELSE 70
 		END
-	FROM Categories c
+	FROM dbo.Categories c
 	WHERE c.TenantId = @TenantId
 		AND c.Active = 1
 		AND c.CategoryName LIKE '%' + @SearchTerm + '%';
@@ -9172,7 +9418,7 @@ BEGIN
 		NULL,
 		NULL,
 		60
-	FROM Products p
+	FROM dbo.Products p
 	CROSS APPLY STRING_SPLIT(p.MetaKeywords, ',')
 	WHERE p.TenantId = @TenantId
 		AND p.Active = 1
@@ -9223,17 +9469,17 @@ BEGIN
 			pr.IsApproved,
 			pr.CreatedAt,
 			pr.UpdatedAt
-		FROM ProductReviews pr
-		INNER JOIN Users u ON pr.UserId = u.UserId
-		INNER JOIN Products p ON pr.ProductId = p.ProductId
+		FROM dbo.ProductReviews pr WITH (NOLOCK)
+		INNER JOIN dbo.Users u WITH (NOLOCK) ON pr.UserId = u.UserId
+		INNER JOIN dbo.Products p WITH (NOLOCK) ON pr.ProductId = p.ProductId
 		WHERE (@TenantId IS NULL OR p.TenantId = @TenantId)
 		ORDER BY pr.CreatedAt DESC
 		OFFSET @Offset ROWS FETCH NEXT @Limit ROWS ONLY;
 
 		-- Total count
 		SELECT COUNT(*) AS TotalCount
-		FROM ProductReviews pr
-		INNER JOIN Products p ON pr.ProductId = p.ProductId
+		FROM dbo.ProductReviews pr WITH (NOLOCK)
+		INNER JOIN dbo.Products p WITH (NOLOCK) ON pr.ProductId = p.ProductId
 		WHERE (@TenantId IS NULL OR p.TenantId = @TenantId);
 	END TRY
 	BEGIN CATCH
@@ -9252,13 +9498,13 @@ AS
 BEGIN
 	SET NOCOUNT ON;
 	BEGIN TRY
-		IF NOT EXISTS (SELECT 1 FROM ProductReviews WHERE ReviewId = @ReviewId)
+		IF NOT EXISTS (SELECT 1 FROM dbo.ProductReviews WHERE ReviewId = @ReviewId)
 		BEGIN
 			RAISERROR('Review not found.', 16, 1);
 			RETURN;
 		END
 
-		UPDATE ProductReviews
+		UPDATE dbo.ProductReviews
 		SET Active = @Active, UpdatedAt = GETUTCDATE()
 		WHERE ReviewId = @ReviewId;
 
@@ -9278,9 +9524,9 @@ BEGIN
 			pr.IsApproved,
 			pr.CreatedAt,
 			pr.UpdatedAt
-		FROM ProductReviews pr
-		INNER JOIN Users u ON pr.UserId = u.UserId
-		INNER JOIN Products p ON pr.ProductId = p.ProductId
+		FROM dbo.ProductReviews pr
+		INNER JOIN dbo.Users u ON pr.UserId = u.UserId
+		INNER JOIN dbo.Products p ON pr.ProductId = p.ProductId
 		WHERE pr.ReviewId = @ReviewId;
 	END TRY
 	BEGIN CATCH
@@ -9357,7 +9603,7 @@ GO
 
 -- =============================================
 -- BANNER STORED PROCEDURES (homepage hero / campaign banners)
--- Separate from ProductImages SPs; does not touch product image flow.
+-- Separate from dbo.ProductImages SPs WITH (NOLOCK); does not touch product image flow.
 -- =============================================
 
 IF OBJECT_ID('dbo.SP_CREATE_BANNER', 'P') IS NOT NULL DROP PROCEDURE [dbo].[SP_CREATE_BANNER];
@@ -9380,7 +9626,7 @@ AS
 BEGIN
     SET NOCOUNT ON;
     BEGIN TRY
-        INSERT INTO BannerImages (
+        INSERT INTO dbo.BannerImages (
             TenantId, Title, CtaText, CtaLink, ImageName, ContentType, FileSize,
             ImageData, OrderBy, StartDate, EndDate, Active, CreatedBy, UpdatedBy, CreatedAt, UpdatedAt
         )
@@ -9394,7 +9640,7 @@ BEGIN
         -- Return created banner metadata (no image bytes)
         SELECT BannerId, TenantId, Title, CtaText, CtaLink, ImageName, ContentType, FileSize,
                OrderBy, StartDate, EndDate, Active, CreatedAt, UpdatedAt
-        FROM BannerImages
+        FROM dbo.BannerImages
         WHERE BannerId = @BannerId;
     END TRY
     BEGIN CATCH
@@ -9428,7 +9674,7 @@ AS
 BEGIN
     SET NOCOUNT ON;
     BEGIN TRY
-        UPDATE BannerImages
+        UPDATE dbo.BannerImages
         SET Title       = @Title,
             CtaText     = @CtaText,
             CtaLink     = @CtaLink,
@@ -9446,7 +9692,7 @@ BEGIN
 
         SELECT BannerId, TenantId, Title, CtaText, CtaLink, ImageName, ContentType, FileSize,
                OrderBy, StartDate, EndDate, Active, CreatedAt, UpdatedAt
-        FROM BannerImages
+        FROM dbo.BannerImages
         WHERE BannerId = @BannerId;
     END TRY
     BEGIN CATCH
@@ -9466,7 +9712,7 @@ CREATE PROCEDURE [dbo].[SP_DELETE_BANNER]
 AS
 BEGIN
     SET NOCOUNT ON;
-    DELETE FROM BannerImages WHERE BannerId = @BannerId AND TenantId = @TenantId;
+    DELETE FROM dbo.BannerImages WHERE BannerId = @BannerId AND TenantId = @TenantId;
     SELECT @@ROWCOUNT AS ROWSAFFECTED;
 END
 GO
@@ -9481,7 +9727,7 @@ BEGIN
     -- Admin list: all banners for tenant, no image bytes (served separately by id).
     SELECT BannerId, TenantId, Title, CtaText, CtaLink, ImageName, ContentType, FileSize,
            OrderBy, StartDate, EndDate, Active, CreatedAt, UpdatedAt
-    FROM BannerImages
+    FROM dbo.BannerImages WITH (NOLOCK)
     WHERE TenantId = @TenantId
     ORDER BY OrderBy ASC, BannerId ASC;
 END
@@ -9498,7 +9744,7 @@ BEGIN
     DECLARE @Now DATETIME2 = GETUTCDATE();
     SELECT BannerId, TenantId, Title, CtaText, CtaLink, ImageName, ContentType, FileSize,
            OrderBy, StartDate, EndDate, Active, CreatedAt, UpdatedAt
-    FROM BannerImages
+    FROM dbo.BannerImages WITH (NOLOCK)
     WHERE TenantId = @TenantId
       AND Active = 1
       AND (StartDate IS NULL OR StartDate <= @Now)
@@ -9515,7 +9761,7 @@ AS
 BEGIN
     SET NOCOUNT ON;
     SELECT BannerId, ImageName, ContentType, ImageData
-    FROM BannerImages
+    FROM dbo.BannerImages WITH (NOLOCK)
     WHERE BannerId = @BannerId;
 END
 GO

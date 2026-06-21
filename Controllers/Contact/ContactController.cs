@@ -3,7 +3,6 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Swashbuckle.AspNetCore.Annotations;
 using Tenant.Query.Model.Contact;
@@ -20,7 +19,6 @@ namespace Tenant.Query.Controllers.Contact
 
         public ContactController(
             ContactService contactService,
-            IConfiguration configuration,
             ILoggerFactory loggerFactory)
         {
             _contactService = contactService;
@@ -67,8 +65,7 @@ namespace Tenant.Query.Controllers.Contact
                 Logger.LogError(ex, "Error submitting contact message");
                 return StatusCode(StatusCodes.Status500InternalServerError, new
                 {
-                    message = "An error occurred while submitting your message. Please try again later.",
-                    error = ex.Message
+                    message = "An error occurred while submitting your message. Please try again later."
                 });
             }
         }
@@ -84,6 +81,14 @@ namespace Tenant.Query.Controllers.Contact
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error")]
         public async Task<IActionResult> GetContactMessages([FromQuery] long? tenantId = null)
         {
+            if (tenantId.HasValue && tenantId.Value <= 0)
+            {
+                return BadRequest(new { message = "tenantId must be a positive number." });
+            }
+
+            var accessError = ValidateTenantAccess(tenantId);
+            if (accessError != null) return accessError;
+
             try
             {
                 var messages = await _contactService.GetContactMessages(tenantId);
@@ -99,8 +104,7 @@ namespace Tenant.Query.Controllers.Contact
                 Logger.LogError(ex, "Error retrieving contact messages");
                 return StatusCode(StatusCodes.Status500InternalServerError, new
                 {
-                    message = "An error occurred while retrieving contact messages.",
-                    error = ex.Message
+                    message = "An error occurred while retrieving contact messages."
                 });
             }
         }
@@ -121,6 +125,19 @@ namespace Tenant.Query.Controllers.Contact
             [FromQuery] long? viewedBy = null,
             [FromQuery] long? tenantId = null)
         {
+            if (id <= 0)
+            {
+                return BadRequest(new { message = "A valid message id is required." });
+            }
+
+            if (tenantId.HasValue && tenantId.Value <= 0)
+            {
+                return BadRequest(new { message = "tenantId must be a positive number." });
+            }
+
+            var accessError = ValidateTenantAccess(tenantId);
+            if (accessError != null) return accessError;
+
             try
             {
                 var rowsAffected = await _contactService.MarkContactMessageViewed(id, viewedBy, tenantId);
@@ -137,10 +154,40 @@ namespace Tenant.Query.Controllers.Contact
                 Logger.LogError(ex, "Error marking contact message {Id} viewed", id);
                 return StatusCode(StatusCodes.Status500InternalServerError, new
                 {
-                    message = "An error occurred while updating the message.",
-                    error = ex.Message
+                    message = "An error occurred while updating the message."
                 });
             }
+        }
+
+        /// <summary>
+        /// Best-effort tenant id from JWT claims. Reads the claim-name variations used across
+        /// this codebase (canonical names live in a compiled DLL). Null when no readable claim.
+        /// </summary>
+        private long? GetTenantIdFromJwt()
+        {
+            var claim = User?.FindFirst("tenant_id")?.Value
+                ?? User?.FindFirst("tenantId")?.Value;
+            return long.TryParse(claim, out var id) ? id : (long?)null;
+        }
+
+        /// <summary>
+        /// Enforces that a client-supplied tenantId does not contradict the caller's JWT tenant.
+        /// Returns a 403 result on mismatch, or null when access is allowed. Defensive: when the
+        /// client omits tenantId, or the token has no readable tenant claim, the request proceeds
+        /// unchanged (preserves existing behavior). Callers must already require [Authorize].
+        /// </summary>
+        private IActionResult ValidateTenantAccess(long? tenantId)
+        {
+            var tokenTenantId = GetTenantIdFromJwt();
+            if (tenantId.HasValue && tokenTenantId.HasValue && tokenTenantId.Value != tenantId.Value)
+            {
+                Logger.LogWarning(
+                    "Tenant access denied: token tenant {TokenTenantId} attempted to act on tenant {RequestTenantId}",
+                    tokenTenantId.Value, tenantId.Value);
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have access to this tenant." });
+            }
+
+            return null;
         }
     }
 }

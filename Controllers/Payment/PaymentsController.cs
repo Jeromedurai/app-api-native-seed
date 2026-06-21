@@ -37,6 +37,16 @@ namespace Tenant.Query.Controllers.Payment
             this._environment = environment;
         }
 
+        #region Private helpers
+
+        /// <summary>
+        /// Flatten ModelState validation errors into a single "; "-joined message.
+        /// </summary>
+        private string ModelStateErrors() =>
+            string.Join("; ", ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage));
+
+        #endregion
+
         /// <summary>
         /// Create Razorpay order and returns a hosted checkout URL for redirect-based payment flow
         /// </summary>
@@ -61,12 +71,7 @@ namespace Tenant.Query.Controllers.Payment
                 // Validate model state
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    var errorMessage = string.Join("; ", errors);
-                    return BadRequest(new { success = false, message = errorMessage, error = "Validation failed" });
+                    return BadRequest(new { success = false, message = ModelStateErrors(), error = "Validation failed" });
                 }
 
                 // Validate amount
@@ -198,35 +203,9 @@ namespace Tenant.Query.Controllers.Payment
                 }
 
                 // Validate optional UserId if provided
-                if (request.UserId.HasValue)
+                if (request.UserId.HasValue && request.UserId.Value <= 0)
                 {
-                    if (request.UserId.Value <= 0)
-                    {
-                        return BadRequest(new { success = false, message = "User ID must be greater than 0 if provided", error = "Invalid user ID" });
-                    }
-
-                    // Verify user exists in database
-                    try
-                    {
-                        // var userService = HttpContext.RequestServices.GetService(typeof(Service.User.UserService)) as Service.User.UserService;
-                        // if (userService != null)
-                        // {
-                        //     var userProfile = await userService.GetUserProfile(request.UserId.Value);
-                        //     if (userProfile == null)
-                        //     {
-                        //         return BadRequest(new { success = false, message = "User not found or inactive", error = "User validation failed" });
-                        //     }
-                        // }
-                    }
-                    catch (KeyNotFoundException)
-                    {
-                        return BadRequest(new { success = false, message = "User not found or inactive", error = "User validation failed" });
-                    }
-                    catch (System.Exception ex)
-                    {
-                        // Log error but don't fail validation if service is unavailable
-                        this.Logger.LogWarning($"User validation error: {ex.Message}");
-                    }
+                    return BadRequest(new { success = false, message = "User ID must be greater than 0 if provided", error = "Invalid user ID" });
                 }
 
                 // Validate customer email if provided
@@ -234,41 +213,6 @@ namespace Tenant.Query.Controllers.Payment
                 {
                     return BadRequest(new { success = false, message = "Invalid email format", error = "Invalid customer email" });
                 }
-
-                // // Validate cart hash if provided (optional but recommended)
-                // if (!string.IsNullOrWhiteSpace(request.CartHash) && request.UserId.HasValue)
-                // {
-                //     try
-                //     {
-                //         // Get cart items for the user
-                //         var cartRequest = new Model.ProductCart.GetCartRequest
-                //         {
-                //             UserId = request.UserId.Value
-                //         };
-                //         var cartResponse = await this.productService.GetUserCart(cartRequest);
-                        
-                //         if (cartResponse != null && cartResponse.Items != null && cartResponse.Items.Any())
-                //         {
-                //             // Generate hash from cart items
-                //             var cartData = string.Join("|", cartResponse.Items.OrderBy(x => x.Product.ProductId)
-                //                 .Select(x => $"{x.Product.ProductId}:{x.Quantity}:{x.Product.Price}"));
-                //             var cartHashBytes = System.Security.Cryptography.SHA256.Create()
-                //                 .ComputeHash(System.Text.Encoding.UTF8.GetBytes(cartData));
-                //             var generatedHash = Convert.ToHexString(cartHashBytes).ToLowerInvariant();
-
-                //             // Compare with provided hash
-                //             if (!request.CartHash.Equals(generatedHash, StringComparison.OrdinalIgnoreCase))
-                //             {
-                //                 return BadRequest(new { success = false, message = "Cart hash verification failed. Cart may have been tampered with.", error = "Cart hash mismatch" });
-                //             }
-                //         }
-                //     }
-                //     catch (System.Exception ex)
-                //     {
-                //         // Log error but don't fail validation if cart service is unavailable
-                //         this.Logger.LogWarning($"Cart hash verification error: {ex.Message}");
-                //     }
-                // }
 
                 // Call service to create Razorpay hosted checkout
                 var result = await this.Service.CreateRazorpayHostedCheckout(request);
@@ -332,7 +276,8 @@ namespace Tenant.Query.Controllers.Payment
             }
             catch (System.Exception ex)
             {
-                return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, message = "An error occurred while creating the Razorpay checkout. Please try again later.", error = ex.Message });
+                this.Logger.LogError(ex, "Error creating Razorpay hosted checkout");
+                return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, message = "An error occurred while creating the Razorpay checkout. Please try again later.", error = "Internal server error" });
             }
         }
 
@@ -361,12 +306,7 @@ namespace Tenant.Query.Controllers.Payment
                 // Validate model state
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    var errorMessage = string.Join("; ", errors);
-                    return BadRequest(new ApiResult { Exception = errorMessage });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Validate Order ID
@@ -500,12 +440,7 @@ namespace Tenant.Query.Controllers.Payment
                 // Validate model state
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    var errorMessage = string.Join("; ", errors);
-                    return BadRequest(new ApiResult { Exception = errorMessage });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Validate Order ID
@@ -655,12 +590,7 @@ namespace Tenant.Query.Controllers.Payment
                 // Validate model state
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    var errorMessage = string.Join("; ", errors);
-                    return BadRequest(new ApiResult { Exception = errorMessage });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Validate Razorpay Order ID

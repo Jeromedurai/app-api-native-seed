@@ -36,6 +36,28 @@ namespace Tenant.Query.Controllers.Dashboard
         }
 
         /// <summary>
+        /// Resolve the tenant id from the query parameter, falling back to the
+        /// authenticated user's "TenantId" claim. Returns false when neither yields
+        /// a positive tenant id.
+        /// </summary>
+        private bool TryResolveTenantId(ref long tenantId)
+        {
+            if (tenantId > 0)
+            {
+                return true;
+            }
+
+            var tenantIdClaim = User.FindFirst("TenantId");
+            if (tenantIdClaim != null && long.TryParse(tenantIdClaim.Value, out long claimTenantId) && claimTenantId > 0)
+            {
+                tenantId = claimTenantId;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Get dashboard statistics
         /// </summary>
         /// <param name="tenantId">Tenant ID</param>
@@ -44,6 +66,7 @@ namespace Tenant.Query.Controllers.Dashboard
         /// <returns>Dashboard statistics</returns>
         [HttpGet("stats")]
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status401Unauthorized, "Unauthorized", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
         public async Task<IActionResult> GetDashboardStats(
@@ -51,18 +74,13 @@ namespace Tenant.Query.Controllers.Dashboard
             [FromQuery] DateTime? startDate = null,
             [FromQuery] DateTime? endDate = null)
         {
+            if (!TryResolveTenantId(ref tenantId))
+            {
+                return BadRequest(new ApiResult { Exception = "Tenant ID is required" });
+            }
+
             try
             {
-                // Get tenant ID from claims if not provided
-                if (tenantId == 0)
-                {
-                    var tenantIdClaim = User.FindFirst("TenantId");
-                    if (tenantIdClaim != null && long.TryParse(tenantIdClaim.Value, out long claimTenantId))
-                    {
-                        tenantId = claimTenantId;
-                    }
-                }
-
                 var stats = await _dashboardService.GetDashboardStats(tenantId, startDate, endDate);
 
                 return Ok(new ApiResult
@@ -72,10 +90,10 @@ namespace Tenant.Query.Controllers.Dashboard
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error getting dashboard stats: {ex.Message}", ex);
+                Logger.LogError(ex, "Error getting dashboard stats for tenant {TenantId}", tenantId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = "An error occurred while retrieving dashboard statistics."
                 });
             }
         }
@@ -90,6 +108,7 @@ namespace Tenant.Query.Controllers.Dashboard
         /// <returns>Sales over time data</returns>
         [HttpGet("sales-over-time")]
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status401Unauthorized, "Unauthorized", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
         public async Task<IActionResult> GetSalesOverTime(
@@ -98,18 +117,13 @@ namespace Tenant.Query.Controllers.Dashboard
             [FromQuery] DateTime? endDate = null,
             [FromQuery] string groupBy = "day")
         {
+            if (!TryResolveTenantId(ref tenantId))
+            {
+                return BadRequest(new ApiResult { Exception = "Tenant ID is required" });
+            }
+
             try
             {
-                // Get tenant ID from claims if not provided
-                if (tenantId == 0)
-                {
-                    var tenantIdClaim = User.FindFirst("TenantId");
-                    if (tenantIdClaim != null && long.TryParse(tenantIdClaim.Value, out long claimTenantId))
-                    {
-                        tenantId = claimTenantId;
-                    }
-                }
-
                 var sales = await _dashboardService.GetSalesOverTime(tenantId, startDate, endDate, groupBy);
 
                 return Ok(new ApiResult
@@ -119,10 +133,10 @@ namespace Tenant.Query.Controllers.Dashboard
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error getting sales over time: {ex.Message}", ex);
+                Logger.LogError(ex, "Error getting sales over time for tenant {TenantId}", tenantId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = "An error occurred while retrieving sales over time."
                 });
             }
         }
@@ -137,6 +151,7 @@ namespace Tenant.Query.Controllers.Dashboard
         /// <returns>Top products</returns>
         [HttpGet("top-products")]
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status401Unauthorized, "Unauthorized", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
         public async Task<IActionResult> GetTopProducts(
@@ -145,18 +160,13 @@ namespace Tenant.Query.Controllers.Dashboard
             [FromQuery] DateTime? endDate = null,
             [FromQuery] int topCount = 10)
         {
+            if (!TryResolveTenantId(ref tenantId))
+            {
+                return BadRequest(new ApiResult { Exception = "Tenant ID is required" });
+            }
+
             try
             {
-                // Get tenant ID from claims if not provided
-                if (tenantId == 0)
-                {
-                    var tenantIdClaim = User.FindFirst("TenantId");
-                    if (tenantIdClaim != null && long.TryParse(tenantIdClaim.Value, out long claimTenantId))
-                    {
-                        tenantId = claimTenantId;
-                    }
-                }
-
                 var products = await _dashboardService.GetTopProducts(tenantId, startDate, endDate, topCount);
 
                 return Ok(new ApiResult
@@ -166,10 +176,10 @@ namespace Tenant.Query.Controllers.Dashboard
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error getting top products: {ex.Message}", ex);
+                Logger.LogError(ex, "Error getting top products for tenant {TenantId}", tenantId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = "An error occurred while retrieving top products."
                 });
             }
         }
@@ -182,45 +192,32 @@ namespace Tenant.Query.Controllers.Dashboard
         /// <returns>Recent orders</returns>
         [HttpGet("recent-orders")]
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status401Unauthorized, "Unauthorized", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
         public async Task<IActionResult> GetRecentOrders(
             [FromQuery] long tenantId,
             [FromQuery] int count = 10)
         {
+            if (!TryResolveTenantId(ref tenantId))
+            {
+                Logger.LogWarning("Controller: tenantId is 0 and no valid claim found");
+                return BadRequest(new ApiResult { Exception = "Tenant ID is required" });
+            }
+
             try
             {
-                Logger.LogInformation($"Controller: GetRecentOrders called with tenantId={tenantId}, count={count}");
-
-                // Get tenant ID from claims if not provided
-                if (tenantId == 0)
-                {
-                    var tenantIdClaim = User.FindFirst("TenantId");
-                    if (tenantIdClaim != null && long.TryParse(tenantIdClaim.Value, out long claimTenantId))
-                    {
-                        tenantId = claimTenantId;
-                        Logger.LogInformation($"Controller: Using tenantId from claims: {tenantId}");
-                    }
-                    else
-                    {
-                        Logger.LogWarning("Controller: tenantId is 0 and no valid claim found");
-                        return BadRequest(new ApiResult
-                        {
-                            Exception = "Tenant ID is required"
-                        });
-                    }
-                }
+                Logger.LogDebug("Controller: GetRecentOrders called with tenantId={TenantId}, count={Count}", tenantId, count);
 
                 // Validate count
                 if (count < 1 || count > 100)
                 {
                     count = 10;
-                    Logger.LogInformation($"Controller: Count adjusted to default: {count}");
                 }
 
                 var orders = await _dashboardService.GetRecentOrders(tenantId, count);
 
-                Logger.LogInformation($"Controller: GetRecentOrders returned {orders?.Count ?? 0} orders");
+                Logger.LogDebug("Controller: GetRecentOrders returned {Count} orders", orders?.Count ?? 0);
 
                 return Ok(new ApiResult
                 {
@@ -229,14 +226,12 @@ namespace Tenant.Query.Controllers.Dashboard
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error getting recent orders: {ex.Message}", ex);
-                Logger.LogError($"Stack trace: {ex.StackTrace}");
+                Logger.LogError(ex, "Error getting recent orders for tenant {TenantId}", tenantId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = $"Error retrieving recent orders: {ex.Message}"
+                    Exception = "An error occurred while retrieving recent orders."
                 });
             }
         }
     }
 }
-

@@ -792,6 +792,82 @@ namespace Tenant.Query.Controllers
         }
 
         /// <summary>
+        /// Upload / update the current user's profile image (multipart/form-data).
+        /// </summary>
+        [Authorize]
+        [HttpPost]
+        [Route("auth/profile-image")]
+        [RequestFormLimits(MultipartBodyLengthLimit = 5 * 1024 * 1024)]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status404NotFound, "User not found", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public async Task<IActionResult> UploadProfileImage([FromForm] Model.User.ProfileImageUploadDto dto)
+        {
+            if (dto == null || dto.UserId <= 0)
+            {
+                return BadRequest(new ApiResult { Exception = "A valid user id is required." });
+            }
+
+            if (dto.TenantId.HasValue && dto.TenantId.Value <= 0)
+            {
+                return BadRequest(new ApiResult { Exception = "tenantId must be a positive number." });
+            }
+
+            try
+            {
+                var profilePictureUrl = await this.Service.UpdateProfileImageAsync(dto);
+                return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = new { profilePictureUrl } });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (KeyNotFoundException)
+            {
+                return NotFound(new ApiResult { Exception = "User not found or inactive." });
+            }
+            catch (System.Exception ex)
+            {
+                Logger.LogError(ex, "Error uploading profile image for user {UserId}", dto.UserId);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    new ApiResult { Exception = "An error occurred while updating the profile image." });
+            }
+        }
+
+        /// <summary>
+        /// Public endpoint that streams a user's profile image bytes (cacheable).
+        /// </summary>
+        [AllowAnonymous]
+        [HttpGet]
+        [Route("auth/profile-image/{userId:long}")]
+        [ResponseCache(Duration = 86400)]
+        public async Task<IActionResult> GetProfileImage([FromRoute] long userId, [FromQuery] long? tenantId = null)
+        {
+            if (userId <= 0)
+            {
+                return BadRequest(new ApiResult { Exception = "A valid user id is required." });
+            }
+
+            try
+            {
+                var image = await this.Service.GetProfileImageAsync(userId, tenantId);
+                if (image?.ImageData == null || image.ImageData.Length == 0)
+                {
+                    return NotFound();
+                }
+
+                return File(image.ImageData, string.IsNullOrWhiteSpace(image.ContentType) ? "image/webp" : image.ContentType);
+            }
+            catch (System.Exception ex)
+            {
+                Logger.LogError(ex, "Error reading profile image for user {UserId}", userId);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    new ApiResult { Exception = "An error occurred while loading the profile image." });
+            }
+        }
+
+        /// <summary>
         /// Reset user password using reset token
         /// </summary>
         /// <param name="request">Password reset details</param>

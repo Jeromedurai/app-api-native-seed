@@ -100,13 +100,14 @@ namespace Tenant.Query.Service.Product
         }
 
         /// <summary>
-        /// Update a product review
+        /// Update a product review. Ownership is enforced in the SP by (ReviewId, UserId, TenantId);
+        /// a not-found/permission failure surfaces as <see cref="KeyNotFoundException"/> (mapped to 404).
         /// </summary>
-        public async Task<ProductReviewResponse> UpdateReview(UpdateProductReviewRequest request, long userId)
+        public async Task<ProductReviewResponse> UpdateReview(UpdateProductReviewRequest request, long userId, long tenantId)
         {
             try
             {
-                this.Logger.LogInformation($"Service: Updating review {request.ReviewId} by user {userId}");
+                this.Logger.LogInformation($"Service: Updating review {request.ReviewId} by user {userId} (tenant {tenantId})");
 
                 // Validate rating if provided
                 if (request.Rating.HasValue && (request.Rating.Value < 1 || request.Rating.Value > 5))
@@ -114,7 +115,12 @@ namespace Tenant.Query.Service.Product
                     throw new ArgumentException("Rating must be between 1 and 5");
                 }
 
-                return await _reviewRepository.UpdateReview(request, userId);
+                return await _reviewRepository.UpdateReview(request, userId, tenantId);
+            }
+            catch (Exception ex) when (IsNotFoundOrPermission(ex))
+            {
+                this.Logger.LogWarning($"Service: Update denied for review {request.ReviewId} by user {userId} (tenant {tenantId})");
+                throw new KeyNotFoundException("Review not found or you do not have permission to update it");
             }
             catch (Exception ex)
             {
@@ -124,21 +130,40 @@ namespace Tenant.Query.Service.Product
         }
 
         /// <summary>
-        /// Delete a product review
+        /// Delete a product review. Ownership is enforced in the SP by (ReviewId, UserId, TenantId);
+        /// a not-found/permission failure surfaces as <see cref="KeyNotFoundException"/> (mapped to 404).
         /// </summary>
-        public async Task<bool> DeleteReview(long reviewId, long userId)
+        public async Task<bool> DeleteReview(long reviewId, long userId, long tenantId)
         {
             try
             {
-                this.Logger.LogInformation($"Service: Deleting review {reviewId} by user {userId}");
+                this.Logger.LogInformation($"Service: Deleting review {reviewId} by user {userId} (tenant {tenantId})");
 
-                return await _reviewRepository.DeleteReview(reviewId, userId);
+                return await _reviewRepository.DeleteReview(reviewId, userId, tenantId);
+            }
+            catch (Exception ex) when (IsNotFoundOrPermission(ex))
+            {
+                this.Logger.LogWarning($"Service: Delete denied for review {reviewId} by user {userId} (tenant {tenantId})");
+                throw new KeyNotFoundException("Review not found or you do not have permission to delete it");
             }
             catch (Exception ex)
             {
                 this.Logger.LogError($"Service: Error deleting review: {ex.Message}", ex);
                 throw;
             }
+        }
+
+        /// <summary>
+        /// True when the underlying SP raised the "not found / no permission" error for a review,
+        /// so the caller can map it to a 404 instead of a 500. Already-typed
+        /// <see cref="KeyNotFoundException"/> is passed through.
+        /// </summary>
+        private static bool IsNotFoundOrPermission(Exception ex)
+        {
+            if (ex is KeyNotFoundException) return true;
+            var msg = ex.Message ?? string.Empty;
+            return msg.IndexOf("not found", StringComparison.OrdinalIgnoreCase) >= 0
+                || msg.IndexOf("permission", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         /// <summary>

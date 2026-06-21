@@ -154,6 +154,120 @@ namespace Tenant.Query.Controllers.Shipping
         }
 
         #endregion
+
+        #region Admin: Shipping Rates CRUD
+
+        /// <summary>
+        /// Get all shipping rate rows for a tenant.
+        /// </summary>
+        [HttpGet]
+        [Route("rates")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public async Task<IActionResult> GetShippingRates([FromQuery] int tenantId)
+        {
+            try
+            {
+                var rates = await _shippingService.GetShippingRates(tenantId);
+                return Ok(new ApiResult { Data = rates });
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Error getting shipping rates: {ex.Message}", ex);
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
+                {
+                    Exception = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Insert (ShippingRateId = 0) or update an existing shipping rate row.
+        /// </summary>
+        [HttpPost]
+        [Route("rates")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public async Task<IActionResult> UpsertShippingRate([FromBody] UpsertShippingRateRequest request)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(new ApiResult
+                    {
+                        Exception = "Invalid request parameters"
+                    });
+                }
+
+                var rate = await _shippingService.UpsertShippingRate(request);
+                return Ok(new ApiResult { Data = rate });
+            }
+            catch (ArgumentException ex)
+            {
+                Logger.LogWarning($"Invalid shipping rate: {ex.Message}");
+                return BadRequest(new ApiResult { Exception = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Error upserting shipping rate: {ex.Message}", ex);
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
+                {
+                    Exception = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Delete a shipping rate row.
+        /// </summary>
+        [HttpDelete]
+        [Route("rates/{id}")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public async Task<IActionResult> DeleteShippingRate([FromRoute] long id, [FromQuery] int tenantId)
+        {
+            try
+            {
+                var rowsAffected = await _shippingService.DeleteShippingRate(id, tenantId);
+                return Ok(new ApiResult { Data = new { rowsAffected } });
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Error deleting shipping rate: {ex.Message}", ex);
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
+                {
+                    Exception = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Activate / deactivate a shipping rate row.
+        /// </summary>
+        [HttpPatch]
+        [Route("rates/{id}/active")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal Server Error", typeof(ApiResult))]
+        public async Task<IActionResult> SetShippingRateActive([FromRoute] long id, [FromQuery] int tenantId, [FromQuery] bool active)
+        {
+            try
+            {
+                var rowsAffected = await _shippingService.SetShippingRateActive(id, tenantId, active);
+                return Ok(new ApiResult { Data = new { rowsAffected, active } });
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Error setting shipping rate active state: {ex.Message}", ex);
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
+                {
+                    Exception = ex.Message
+                });
+            }
+        }
+
+        #endregion
     }
 }
 

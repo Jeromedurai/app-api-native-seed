@@ -214,6 +214,161 @@ namespace Tenant.Query.Repository.Shipping
                 throw;
             }
         }
+
+        #region Shipping Rates (Admin CRUD)
+
+        /// <summary>
+        /// Get all shipping rate rows for a tenant.
+        /// </summary>
+        public async Task<List<ShippingRateResponse>> GetShippingRates(int tenantId)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Getting shipping rates for tenant: {tenantId}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Constant.StoredProcedures.SP_GET_SHIPPING_RATES,
+                    tenantId
+                ));
+
+                return MapShippingRates(result);
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError(ex, $"Repository: Error getting shipping rates");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Insert (ShippingRateId = 0) or update an existing shipping rate row.
+        /// Returns the affected row.
+        /// </summary>
+        public async Task<ShippingRateResponse> UpsertShippingRate(UpsertShippingRateRequest request)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Upserting shipping rate {request.ShippingRateId} for tenant: {request.TenantId}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Constant.StoredProcedures.SP_UPSERT_SHIPPING_RATE,
+                    request.ShippingRateId,
+                    request.TenantId,
+                    request.ProductType,
+                    string.IsNullOrWhiteSpace(request.StateCode) ? (object)DBNull.Value : request.StateCode,
+                    request.CourierType,
+                    request.BaseCharge,
+                    request.PerUnitCharge,
+                    request.MinCharge,
+                    request.MaxCharge.HasValue ? (object)request.MaxCharge.Value : DBNull.Value,
+                    request.FreeShippingThreshold.HasValue ? (object)request.FreeShippingThreshold.Value : DBNull.Value,
+                    request.Active ? 1 : 0
+                ));
+
+                var rates = MapShippingRates(result);
+                return rates.Count > 0 ? rates[0] : null;
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError(ex, $"Repository: Error upserting shipping rate");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Delete a shipping rate row. Returns the number of rows affected.
+        /// </summary>
+        public async Task<int> DeleteShippingRate(long shippingRateId, int tenantId)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Deleting shipping rate {shippingRateId} for tenant: {tenantId}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Constant.StoredProcedures.SP_DELETE_SHIPPING_RATE,
+                    shippingRateId,
+                    tenantId
+                ));
+
+                return ReadRowsAffected(result);
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError(ex, $"Repository: Error deleting shipping rate");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Activate / deactivate a shipping rate row. Returns the number of rows affected.
+        /// </summary>
+        public async Task<int> SetShippingRateActive(long shippingRateId, int tenantId, bool active)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Setting shipping rate {shippingRateId} active={active} for tenant: {tenantId}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Constant.StoredProcedures.SP_SET_SHIPPING_RATE_ACTIVE,
+                    shippingRateId,
+                    tenantId,
+                    active ? 1 : 0
+                ));
+
+                return ReadRowsAffected(result);
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError(ex, $"Repository: Error setting shipping rate active state");
+                throw;
+            }
+        }
+
+        #region Helpers
+
+        private static List<ShippingRateResponse> MapShippingRates(DataSet result)
+        {
+            var rates = new List<ShippingRateResponse>();
+
+            if (result != null && result.Tables.Count > 0 && result.Tables[0].Rows.Count > 0)
+            {
+                foreach (DataRow row in result.Tables[0].Rows)
+                {
+                    rates.Add(new ShippingRateResponse
+                    {
+                        ShippingRateId = Convert.ToInt64(row["ShippingRateId"]),
+                        TenantId = Convert.ToInt64(row["TenantId"]),
+                        ProductType = row["ProductType"]?.ToString() ?? "",
+                        StateCode = row["StateCode"] != DBNull.Value ? row["StateCode"]?.ToString() : null,
+                        CourierType = row["CourierType"]?.ToString() ?? "",
+                        BaseCharge = Convert.ToDecimal(row["BaseCharge"]),
+                        PerUnitCharge = row["PerUnitCharge"] != DBNull.Value ? Convert.ToDecimal(row["PerUnitCharge"]) : 0m,
+                        MinCharge = Convert.ToDecimal(row["MinCharge"]),
+                        MaxCharge = row["MaxCharge"] != DBNull.Value ? Convert.ToDecimal(row["MaxCharge"]) : (decimal?)null,
+                        FreeShippingThreshold = row["FreeShippingThreshold"] != DBNull.Value ? Convert.ToDecimal(row["FreeShippingThreshold"]) : (decimal?)null,
+                        Active = row["Active"] != DBNull.Value && Convert.ToBoolean(row["Active"]),
+                        CreatedAt = row["CreatedAt"] != DBNull.Value ? Convert.ToDateTime(row["CreatedAt"]) : DateTime.MinValue,
+                        UpdatedAt = row["UpdatedAt"] != DBNull.Value ? Convert.ToDateTime(row["UpdatedAt"]) : DateTime.MinValue
+                    });
+                }
+            }
+
+            return rates;
+        }
+
+        private static int ReadRowsAffected(DataSet result)
+        {
+            if (result != null && result.Tables.Count > 0 && result.Tables[0].Rows.Count > 0)
+            {
+                var value = result.Tables[0].Rows[0]["RowsAffected"];
+                return value != DBNull.Value ? Convert.ToInt32(value) : 0;
+            }
+            return 0;
+        }
+
+        #endregion
+
+        #endregion
     }
 }
 

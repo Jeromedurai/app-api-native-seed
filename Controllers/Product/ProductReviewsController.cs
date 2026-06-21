@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -21,8 +22,9 @@ namespace Tenant.Query.Controllers.Product
     public class ProductReviewsController : ControllerBase
     {
         #region Variables
+        private const string GenericErrorMessage = "An error occurred while processing your request.";
         private readonly ProductReviewService _reviewService;
-        public ILogger Logger { get; set; }
+        private readonly ILogger<ProductReviewsController> _logger;
         #endregion
 
         public ProductReviewsController(
@@ -30,7 +32,34 @@ namespace Tenant.Query.Controllers.Product
             ILoggerFactory loggerFactory)
         {
             _reviewService = reviewService;
-            this.Logger = loggerFactory.CreateLogger<ProductReviewsController>();
+            _logger = loggerFactory.CreateLogger<ProductReviewsController>();
+        }
+
+        /// <summary>
+        /// Resolve the authenticated user id from JWT claims only. Returns false when absent.
+        /// </summary>
+        private bool TryGetUserId(out long userId)
+        {
+            // Claim names come from the compiled DLL (CLAIM_USER_ID); read resiliently
+            // using the same names already proven in ProductsController/BannersController.
+            var claim = User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)
+                ?? User?.FindFirst("user_id")
+                ?? User?.FindFirst("userId")
+                ?? User?.FindFirst("UserId")
+                ?? User?.FindFirst("sub");
+            return long.TryParse(claim?.Value, out userId) && userId > 0;
+        }
+
+        /// <summary>
+        /// Resolve the authenticated tenant id from JWT claims only. Returns false when absent.
+        /// </summary>
+        private bool TryGetTenantId(out long tenantId)
+        {
+            // CLAIM_TENANT_ID from the compiled DLL; ProductsController proves "tenant_id"/"tenantId".
+            var claim = User?.FindFirst("tenant_id")
+                ?? User?.FindFirst("tenantId")
+                ?? User?.FindFirst("TenantId");
+            return long.TryParse(claim?.Value, out tenantId) && tenantId > 0;
         }
 
         /// <summary>
@@ -57,10 +86,10 @@ namespace Tenant.Query.Controllers.Product
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error getting reviews: {ex.Message}", ex);
+                _logger.LogError(ex, "Error getting reviews for product {ProductId}", productId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -89,10 +118,10 @@ namespace Tenant.Query.Controllers.Product
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error getting review stats: {ex.Message}", ex);
+                _logger.LogError(ex, "Error getting review stats for product {ProductId}", productId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -103,6 +132,7 @@ namespace Tenant.Query.Controllers.Product
         /// <param name="productId">Product ID</param>
         /// <param name="request">Review request</param>
         /// <returns>Created review</returns>
+        [Authorize]
         [HttpPost]
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
@@ -122,47 +152,18 @@ namespace Tenant.Query.Controllers.Product
                     });
                 }
 
-                // Get user ID from claims first, then fallback to request body
-                long userId = 0;
-                var userIdClaim = User.FindFirst("UserId");
-                if (userIdClaim != null && long.TryParse(userIdClaim.Value, out userId))
+                // SECURITY: identity is derived from the JWT only — never trust request body UserId/TenantId.
+                if (!TryGetUserId(out var userId))
                 {
-                    // Use from claims
-                }
-                else if (request.UserId > 0)
-                {
-                    // Use from request body
-                    userId = request.UserId;
-                }
-                else
-                {
-                    return Unauthorized(new ApiResult
-                    {
-                        Exception = "User ID not found in token or request"
-                    });
+                    return Unauthorized(new ApiResult { Exception = "User ID not found in token" });
                 }
 
-                // Get tenant ID from claims first, then fallback to request body
-                long tenantId = 0;
-                var tenantIdClaim = User.FindFirst("TenantId");
-                if (tenantIdClaim != null && long.TryParse(tenantIdClaim.Value, out tenantId))
+                if (!TryGetTenantId(out var tenantId))
                 {
-                    // Use from claims
-                }
-                else if (request.TenantId > 0)
-                {
-                    // Use from request body
-                    tenantId = request.TenantId;
-                }
-                else
-                {
-                    return BadRequest(new ApiResult
-                    {
-                        Exception = "Tenant ID not found in token or request"
-                    });
+                    return BadRequest(new ApiResult { Exception = "Tenant ID not found in token" });
                 }
 
-                // Ensure productId matches
+                // Ensure productId matches the route
                 request.ProductId = productId;
 
                 var review = await _reviewService.CreateReview(request, userId, tenantId);
@@ -174,10 +175,10 @@ namespace Tenant.Query.Controllers.Product
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error creating review: {ex.Message}", ex);
+                _logger.LogError(ex, "Error creating review for product {ProductId}", productId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -189,6 +190,7 @@ namespace Tenant.Query.Controllers.Product
         /// <param name="reviewId">Review ID</param>
         /// <param name="request">Update request</param>
         /// <returns>Updated review</returns>
+        [Authorize]
         [HttpPut("{reviewId}")]
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad Request", typeof(ApiResult))]
@@ -210,51 +212,38 @@ namespace Tenant.Query.Controllers.Product
                     });
                 }
 
-                // Get user ID from claims first, then fallback to request body
-                long userId = 0;
-                var userIdClaim = User.FindFirst("UserId");
-                if (userIdClaim != null && long.TryParse(userIdClaim.Value, out userId))
+                // SECURITY: identity is derived from the JWT only — never trust request body UserId/TenantId.
+                if (!TryGetUserId(out var userId))
                 {
-                    // Use from claims
-                }
-                else if (request.UserId > 0)
-                {
-                    // Use from request body
-                    userId = request.UserId;
-                }
-                else
-                {
-                    return Unauthorized(new ApiResult
-                    {
-                        Exception = "User ID not found in token or request"
-                    });
+                    return Unauthorized(new ApiResult { Exception = "User ID not found in token" });
                 }
 
-                // Ensure reviewId matches
+                if (!TryGetTenantId(out var tenantId))
+                {
+                    return BadRequest(new ApiResult { Exception = "Tenant ID not found in token" });
+                }
+
+                // Ensure reviewId matches the route
                 request.ReviewId = reviewId;
 
-                var review = await _reviewService.UpdateReview(request, userId);
+                var review = await _reviewService.UpdateReview(request, userId, tenantId);
 
                 return Ok(new ApiResult
                 {
                     Data = review
                 });
             }
+            catch (KeyNotFoundException ex)
+            {
+                _logger.LogWarning(ex, "Review {ReviewId} not found or not owned by caller on update", reviewId);
+                return NotFound(new ApiResult { Exception = ex.Message });
+            }
             catch (Exception ex)
             {
-                Logger.LogError($"Error updating review: {ex.Message}", ex);
-                
-                if (ex.Message.Contains("not found") || ex.Message.Contains("permission"))
-                {
-                    return NotFound(new ApiResult
-                    {
-                        Exception = ex.Message
-                    });
-                }
-
+                _logger.LogError(ex, "Error updating review {ReviewId}", reviewId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -277,38 +266,35 @@ namespace Tenant.Query.Controllers.Product
         {
             try
             {
-                // Get user ID from claims
-                var userIdClaim = User.FindFirst("UserId");
-                if (userIdClaim == null || !long.TryParse(userIdClaim.Value, out long userId))
+                // SECURITY: identity is derived from the JWT only.
+                if (!TryGetUserId(out var userId))
                 {
-                    return Unauthorized(new ApiResult
-                    {
-                        Exception = "User ID not found in token"
-                    });
+                    return Unauthorized(new ApiResult { Exception = "User ID not found in token" });
                 }
 
-                await _reviewService.DeleteReview(reviewId, userId);
+                if (!TryGetTenantId(out var tenantId))
+                {
+                    return BadRequest(new ApiResult { Exception = "Tenant ID not found in token" });
+                }
+
+                await _reviewService.DeleteReview(reviewId, userId, tenantId);
 
                 return Ok(new ApiResult
                 {
                     Data = new { success = true, message = "Review deleted successfully" }
                 });
             }
+            catch (KeyNotFoundException ex)
+            {
+                _logger.LogWarning(ex, "Review {ReviewId} not found or not owned by caller on delete", reviewId);
+                return NotFound(new ApiResult { Exception = ex.Message });
+            }
             catch (Exception ex)
             {
-                Logger.LogError($"Error deleting review: {ex.Message}", ex);
-                
-                if (ex.Message.Contains("not found") || ex.Message.Contains("permission"))
-                {
-                    return NotFound(new ApiResult
-                    {
-                        Exception = ex.Message
-                    });
-                }
-
+                _logger.LogError(ex, "Error deleting review {ReviewId}", reviewId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -331,14 +317,10 @@ namespace Tenant.Query.Controllers.Product
         {
             try
             {
-                // Get user ID from claims
-                var userIdClaim = User.FindFirst("UserId");
-                if (userIdClaim == null || !long.TryParse(userIdClaim.Value, out long userId))
+                // SECURITY: identity is derived from the JWT only.
+                if (!TryGetUserId(out var userId))
                 {
-                    return Unauthorized(new ApiResult
-                    {
-                        Exception = "User ID not found in token"
-                    });
+                    return Unauthorized(new ApiResult { Exception = "User ID not found in token" });
                 }
 
                 var helpfulCount = await _reviewService.MarkReviewHelpful(reviewId, userId);
@@ -348,21 +330,17 @@ namespace Tenant.Query.Controllers.Product
                     Data = new { helpful = helpfulCount }
                 });
             }
+            catch (KeyNotFoundException ex)
+            {
+                _logger.LogWarning(ex, "Review {ReviewId} not found on mark-helpful", reviewId);
+                return NotFound(new ApiResult { Exception = ex.Message });
+            }
             catch (Exception ex)
             {
-                Logger.LogError($"Error marking review as helpful: {ex.Message}", ex);
-                
-                if (ex.Message.Contains("not found"))
-                {
-                    return NotFound(new ApiResult
-                    {
-                        Exception = ex.Message
-                    });
-                }
-
+                _logger.LogError(ex, "Error marking review {ReviewId} as helpful", reviewId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }

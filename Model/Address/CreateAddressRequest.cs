@@ -29,6 +29,9 @@ namespace Tenant.Query.Model.Address
         [StringLength(100, ErrorMessage = "Country cannot exceed 100 characters")]
         public string Country { get; set; } = "IN";
 
+        [StringLength(20, ErrorMessage = "Phone cannot exceed 20 characters")]
+        public string Phone { get; set; }
+
         public bool IsDefault { get; set; } = false;
     }
 }

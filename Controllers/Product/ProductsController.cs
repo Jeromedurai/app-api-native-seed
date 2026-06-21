@@ -51,7 +51,62 @@ namespace Tenant.Query.Controllers.Product
             this._environment = environment;
         }
 
-        #region New Endpoint 
+        #region Private helpers
+
+        /// <summary>
+        /// Flatten ModelState validation errors into a single "; "-joined message.
+        /// </summary>
+        private string ModelStateErrors() =>
+            string.Join("; ", ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage));
+
+        /// <summary>
+        /// Stamp full image + thumbnail URLs (string-interpolation form: {base}/api/1.0/products/{id})
+        /// onto a product's image list, mirroring the per-endpoint inline loops. Optionally backfills Poster.
+        /// </summary>
+        private void StampImageUrls(IEnumerable<ProductSearchImageInfo> images, bool setPoster)
+        {
+            if (images == null) return;
+
+            var request = HttpContext.Request;
+            var baseUrl = $"{request.Scheme}://{request.Host}";
+
+            foreach (var image in images)
+            {
+                image.ImageUrl = $"{baseUrl}/api/1.0/products/{image.ImageId}";
+                image.ThumbnailUrl = $"{baseUrl}/api/1.0/products/{image.ImageId}/thumbnail";
+
+                if (setPoster && string.IsNullOrEmpty(image.Poster))
+                {
+                    image.Poster = image.ImageUrl;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stamp string-interpolation image URLs across every product in a search result. Backfills Poster.
+        /// </summary>
+        private void StampProductImageUrls(IEnumerable<ProductDetailItem> products)
+        {
+            if (products == null) return;
+            foreach (var product in products)
+            {
+                StampImageUrls(product.Images, setPoster: true);
+            }
+        }
+
+        /// <summary>
+        /// Current request's client IP address (or null).
+        /// </summary>
+        private string ClientIpAddress() => HttpContext.Connection.RemoteIpAddress?.ToString();
+
+        /// <summary>
+        /// Current request's User-Agent header (or null).
+        /// </summary>
+        private string ClientUserAgent() => HttpContext.Request.Headers["User-Agent"].FirstOrDefault();
+
+        #endregion
+
+        #region New Endpoint
 
         /// <summary>
         /// Upload image by productid
@@ -286,11 +341,7 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 if (request.ProductId <= 0)
@@ -893,24 +944,6 @@ namespace Tenant.Query.Controllers.Product
             };
         }
 
-        //// DELETE api/images/{id}
-        //[HttpDelete("{id}")]
-        //public async Task<IActionResult> DeleteImage(long id)
-        //{
-        //    try
-        //    {
-        //        var image = await productService.DeleteImage(id);
-        //        if (image == null)
-        //            return NotFound();
-
-        //        return NoContent();
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        return StatusCode(500, "Internal server error");
-        //    }
-        //}
-
         #endregion
 
         #region Crude endpoint        
@@ -933,9 +966,6 @@ namespace Tenant.Query.Controllers.Product
             catch (System.Exception ex)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
-            }
-            finally
-            {
             }
         }
 
@@ -961,9 +991,6 @@ namespace Tenant.Query.Controllers.Product
             catch (System.Exception ex)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
-            }
-            finally
-            {
             }
         }
 
@@ -992,9 +1019,6 @@ namespace Tenant.Query.Controllers.Product
             {
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
             }
-            finally
-            {
-            }
         }
 
         [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResult))]
@@ -1019,9 +1043,6 @@ namespace Tenant.Query.Controllers.Product
             catch (System.Exception ex)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult { Exception = ex.Message });
-            }
-            finally
-            {
             }
         }
 
@@ -1074,29 +1095,7 @@ namespace Tenant.Query.Controllers.Product
                 var result = await this.Service.SearchProductsAsync(tenantId, payload);
 
                 // Generate full URLs for all product images
-                if (result?.Products != null)
-                {
-                    foreach (var product in result.Products)
-                    {
-                        if (product.Images != null)
-                        {
-                            foreach (var image in product.Images)
-                            {
-                                // Generate full image URL and thumbnail URL
-                                var request = HttpContext.Request;
-                                var baseUrl = $"{request.Scheme}://{request.Host}";
-                                image.ImageUrl = $"{baseUrl}/api/1.0/products/{image.ImageId}";
-                                image.ThumbnailUrl = $"{baseUrl}/api/1.0/products/{image.ImageId}/thumbnail";
-                                
-                                // Set Poster to ImageUrl for backward compatibility
-                                if (string.IsNullOrEmpty(image.Poster))
-                                {
-                                    image.Poster = image.ImageUrl;
-                                }
-                            }
-                        }
-                    }
-                }
+                StampProductImageUrls(result?.Products);
 
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
             }
@@ -1152,27 +1151,7 @@ namespace Tenant.Query.Controllers.Product
 
                 var result = await this.Service.SearchProductsInlineAsync(tenantId, payload);
 
-                if (result?.Products != null)
-                {
-                    foreach (var product in result.Products)
-                    {
-                        if (product.Images != null)
-                        {
-                            foreach (var image in product.Images)
-                            {
-                                var request = HttpContext.Request;
-                                var baseUrl = $"{request.Scheme}://{request.Host}";
-                                image.ImageUrl = $"{baseUrl}/api/1.0/products/{image.ImageId}";
-                                image.ThumbnailUrl = $"{baseUrl}/api/1.0/products/{image.ImageId}/thumbnail";
-
-                                if (string.IsNullOrEmpty(image.Poster))
-                                {
-                                    image.Poster = image.ImageUrl;
-                                }
-                            }
-                        }
-                    }
-                }
+                StampProductImageUrls(result?.Products);
 
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
             }
@@ -1430,24 +1409,7 @@ namespace Tenant.Query.Controllers.Product
                 }
 
                 // Map image URLs
-                if (result.Images != null && result.Images.Any())
-                {
-                    // Generate full URLs for all product images
-                    var request = HttpContext.Request;
-                    var baseUrl = $"{request.Scheme}://{request.Host}";
-                    
-                    foreach (var image in result.Images)
-                    {
-                        image.ImageUrl = $"{baseUrl}/api/1.0/products/{image.ImageId}";
-                        image.ThumbnailUrl = $"{baseUrl}/api/1.0/products/{image.ImageId}/thumbnail";
-                        
-                        // Set Poster to ImageUrl for backward compatibility
-                        if (string.IsNullOrEmpty(image.Poster))
-                        {
-                            image.Poster = image.ImageUrl;
-                        }
-                    }
-                }
+                StampImageUrls(result.Images, setPoster: true);
 
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
             }
@@ -1791,33 +1753,6 @@ namespace Tenant.Query.Controllers.Product
             }
         }
 
-        // [HttpPost]
-        // [Route("tenants/{tenantId}/add-category")]
-        // [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(Model.Product.ProductCategory))]
-        // [SwaggerResponse(StatusCodes.Status400BadRequest, "Bad request", typeof(ApiResult))]
-        // [SwaggerResponse(StatusCodes.Status404NotFound, "Resource not found", typeof(ApiResult))]
-        // [SwaggerResponse(StatusCodes.Status500InternalServerError, "Internal server error", typeof(ApiResult))]
-        // public IActionResult AddCategory([FromRoute] string tenantId, [FromBody] Model.Response.CatrtegoryPayload catrtegoryPayload)
-        // {
-        //     try
-        //     {
-        //         //calling service
-        //         long categoryId = this.Service.AddCategory(Convert.ToInt64(tenantId), catrtegoryPayload);
-
-        //         // Return productMaster
-        //         return StatusCode(StatusCodes.Status200OK, new ApiResult() { Data = categoryId });
-        //     }
-        //     // key not found exeception
-        //     catch (KeyNotFoundException ex)
-        //     {
-        //         return StatusCode(StatusCodes.Status404NotFound, new ApiResult() { Exception = ex.Message });
-        //     }
-        //     catch (System.Exception ex)
-        //     {
-        //         return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult() { Exception = ex.Message });
-        //     }
-        // }
-
         /// <summary>
         /// 
         /// </summary>
@@ -1992,12 +1927,9 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    Logger.LogWarning($"Controller: ModelState validation failed: {string.Join("; ", errors)}");
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    var errorMessage = ModelStateErrors();
+                    Logger.LogWarning($"Controller: ModelState validation failed: {errorMessage}");
+                    return BadRequest(new ApiResult { Exception = errorMessage });
                 }
 
                 if (request.UserId <= 0)
@@ -2140,8 +2072,8 @@ namespace Tenant.Query.Controllers.Product
                 };
 
                 // Extract IP address and User-Agent from request headers if not provided
-                request.IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-                request.UserAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault();
+                request.IpAddress = ClientIpAddress();
+                request.UserAgent = ClientUserAgent();
 
                 var result = await this.productService.ClearWishlist(tenantId.Value, request);
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
@@ -2198,11 +2130,7 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 var cartResponse = await this.Service.GetUserCart(request);
@@ -2265,23 +2193,12 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Extract IP address and User-Agent from request headers if not provided
-                if (string.IsNullOrEmpty(request.IpAddress))
-                {
-                    request.IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-                }
-
-                if (string.IsNullOrEmpty(request.UserAgent))
-                {
-                    request.UserAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault();
-                }
+                if (string.IsNullOrEmpty(request.IpAddress)) request.IpAddress = ClientIpAddress();
+                if (string.IsNullOrEmpty(request.UserAgent)) request.UserAgent = ClientUserAgent();
 
                 var result = await this.Service.AddItemToCart(tenantId,request);
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
@@ -2327,23 +2244,12 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Extract IP address and User-Agent from request headers if not provided
-                if (string.IsNullOrEmpty(request.IpAddress))
-                {
-                    request.IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-                }
-
-                if (string.IsNullOrEmpty(request.UserAgent))
-                {
-                    request.UserAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault();
-                }
+                if (string.IsNullOrEmpty(request.IpAddress)) request.IpAddress = ClientIpAddress();
+                if (string.IsNullOrEmpty(request.UserAgent)) request.UserAgent = ClientUserAgent();
 
                 var result = await this.Service.RemoveItemFromCart(tenantId, request);
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
@@ -2384,23 +2290,12 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Extract IP address and User-Agent from request headers if not provided
-                if (string.IsNullOrEmpty(request.IpAddress))
-                {
-                    request.IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-                }
-
-                if (string.IsNullOrEmpty(request.UserAgent))
-                {
-                    request.UserAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault();
-                }
+                if (string.IsNullOrEmpty(request.IpAddress)) request.IpAddress = ClientIpAddress();
+                if (string.IsNullOrEmpty(request.UserAgent)) request.UserAgent = ClientUserAgent();
 
                 var result = await this.Service.ClearCart(tenantId, request);
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
@@ -2442,11 +2337,7 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Validate order items exist
@@ -2469,15 +2360,8 @@ namespace Tenant.Query.Controllers.Product
                 }
 
                 // Extract IP address and User-Agent from request headers if not provided
-                if (string.IsNullOrEmpty(request.IpAddress))
-                {
-                    request.IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-                }
-
-                if (string.IsNullOrEmpty(request.UserAgent))
-                {
-                    request.UserAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault();
-                }
+                if (string.IsNullOrEmpty(request.IpAddress)) request.IpAddress = ClientIpAddress();
+                if (string.IsNullOrEmpty(request.UserAgent)) request.UserAgent = ClientUserAgent();
 
                 var result = await this.Service.CreateOrder(request);
 
@@ -2556,11 +2440,7 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Validate pagination parameters
@@ -2690,23 +2570,12 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Extract IP address and User-Agent from request headers if not provided
-                if (string.IsNullOrEmpty(request.IpAddress))
-                {
-                    request.IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-                }
-
-                if (string.IsNullOrEmpty(request.UserAgent))
-                {
-                    request.UserAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault();
-                }
+                if (string.IsNullOrEmpty(request.IpAddress)) request.IpAddress = ClientIpAddress();
+                if (string.IsNullOrEmpty(request.UserAgent)) request.UserAgent = ClientUserAgent();
 
                 var result = await this.Service.CancelOrder(request);
                 
@@ -2770,23 +2639,12 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Extract IP address and User-Agent from request headers if not provided
-                if (string.IsNullOrEmpty(request.IpAddress))
-                {
-                    request.IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-                }
-
-                if (string.IsNullOrEmpty(request.UserAgent))
-                {
-                    request.UserAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault();
-                }
+                if (string.IsNullOrEmpty(request.IpAddress)) request.IpAddress = ClientIpAddress();
+                if (string.IsNullOrEmpty(request.UserAgent)) request.UserAgent = ClientUserAgent();
 
                 var result = await this.Service.UpdateOrderStatus(request);
                 
@@ -2845,23 +2703,12 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Extract IP address and User-Agent from request headers if not provided
-                if (string.IsNullOrEmpty(request.IpAddress))
-                {
-                    request.IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-                }
-
-                if (string.IsNullOrEmpty(request.UserAgent))
-                {
-                    request.UserAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault();
-                }
+                if (string.IsNullOrEmpty(request.IpAddress)) request.IpAddress = ClientIpAddress();
+                if (string.IsNullOrEmpty(request.UserAgent)) request.UserAgent = ClientUserAgent();
 
                 var result = await this.Service.BulkUpdateOrderStatus(request);
 
@@ -2897,11 +2744,7 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Validate pagination parameters
@@ -2968,23 +2811,12 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Extract IP address and User-Agent from request headers if not provided
-                if (string.IsNullOrEmpty(request.IpAddress))
-                {
-                    request.IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-                }
-
-                if (string.IsNullOrEmpty(request.UserAgent))
-                {
-                    request.UserAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault();
-                }
+                if (string.IsNullOrEmpty(request.IpAddress)) request.IpAddress = ClientIpAddress();
+                if (string.IsNullOrEmpty(request.UserAgent)) request.UserAgent = ClientUserAgent();
 
                 var result = await this.Service.UpdateUserRole(request);
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
@@ -3030,11 +2862,7 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Validate pagination parameters
@@ -3103,11 +2931,7 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Validate files
@@ -3138,15 +2962,8 @@ namespace Tenant.Query.Controllers.Product
                 }
 
                 // Extract IP address and User-Agent from request headers if not provided
-                if (string.IsNullOrEmpty(request.IpAddress))
-                {
-                    request.IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-                }
-
-                if (string.IsNullOrEmpty(request.UserAgent))
-                {
-                    request.UserAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault();
-                }
+                if (string.IsNullOrEmpty(request.IpAddress)) request.IpAddress = ClientIpAddress();
+                if (string.IsNullOrEmpty(request.UserAgent)) request.UserAgent = ClientUserAgent();
 
                 var result = await this.Service.AddProductImages(request);
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
@@ -3202,11 +3019,7 @@ namespace Tenant.Query.Controllers.Product
 
                 if (!ModelState.IsValid)
                 {
-                    var errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList();
-                    return BadRequest(new ApiResult { Exception = string.Join("; ", errors) });
+                    return BadRequest(new ApiResult { Exception = ModelStateErrors() });
                 }
 
                 // Validate that at least one property is being updated
@@ -3216,15 +3029,8 @@ namespace Tenant.Query.Controllers.Product
                 }
 
                 // Extract IP address and User-Agent from request headers if not provided
-                if (string.IsNullOrEmpty(request.IpAddress))
-                {
-                    request.IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-                }
-
-                if (string.IsNullOrEmpty(request.UserAgent))
-                {
-                    request.UserAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault();
-                }
+                if (string.IsNullOrEmpty(request.IpAddress)) request.IpAddress = ClientIpAddress();
+                if (string.IsNullOrEmpty(request.UserAgent)) request.UserAgent = ClientUserAgent();
 
                 var result = await this.Service.UpdateProductImage(request);
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });
@@ -3274,8 +3080,8 @@ namespace Tenant.Query.Controllers.Product
                     ProductId = productId,
                     ImageId = imageId,
                     // Extract IP address and User-Agent from request headers
-                    IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
-                    UserAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault()
+                    IpAddress = ClientIpAddress(),
+                    UserAgent = ClientUserAgent()
                 };
 
                 var result = await this.Service.SetMainProductImage(request);
@@ -3333,8 +3139,8 @@ namespace Tenant.Query.Controllers.Product
                 };
 
                 // Extract IP address and User-Agent from request headers
-                request.IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-                request.UserAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault();
+                request.IpAddress = ClientIpAddress();
+                request.UserAgent = ClientUserAgent();
 
                 var result = await this.Service.DeleteProductImage(request);
                 return StatusCode(StatusCodes.Status200OK, new ApiResult { Data = result });

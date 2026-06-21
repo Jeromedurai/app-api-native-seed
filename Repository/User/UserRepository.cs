@@ -654,9 +654,80 @@ namespace Tenant.Query.Repository.User
         }
 
         /// <summary>
+        /// Persist a user's profile image bytes and the serve URL. Tenant-scoped.
+        /// Returns rows affected (0 = user not found / wrong tenant).
+        /// </summary>
+        public async Task<int> UpdateProfileImage(long userId, long? tenantId, byte[] imageData, string contentType, string profilePictureUrl)
+        {
+            try
+            {
+                this.Logger.LogInformation($"Repository: Updating profile image for user {userId}");
+
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Model.Constant.Constant.StoredProcedures.SP_UPDATE_USER_PROFILE_IMAGE,
+                    userId,
+                    tenantId ?? (object)DBNull.Value,
+                    imageData,
+                    contentType,
+                    string.IsNullOrWhiteSpace(profilePictureUrl) ? (object)DBNull.Value : profilePictureUrl
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                {
+                    return 0;
+                }
+
+                var value = result.Tables[0].Rows[0]["RowsAffected"];
+                return value != null && value != DBNull.Value ? Convert.ToInt32(value) : 0;
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Error updating profile image for user {userId}: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Read a user's stored profile image bytes + content type. Returns null when none.
+        /// </summary>
+        public async Task<Model.User.ProfileImageData> GetProfileImage(long userId, long? tenantId)
+        {
+            try
+            {
+                var result = await Task.Run(() => _dataAccess.ExecuteDataset(
+                    Model.Constant.Constant.StoredProcedures.SP_GET_USER_PROFILE_IMAGE,
+                    userId,
+                    tenantId ?? (object)DBNull.Value
+                ));
+
+                if (result == null || result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0)
+                {
+                    return null;
+                }
+
+                var row = result.Tables[0].Rows[0];
+                if (row["ProfileImageData"] == DBNull.Value)
+                {
+                    return null;
+                }
+
+                return new Model.User.ProfileImageData
+                {
+                    ImageData = (byte[])row["ProfileImageData"],
+                    ContentType = row["ProfileImageContentType"] as string ?? "image/webp"
+                };
+            }
+            catch (Exception ex)
+            {
+                this.Logger.LogError($"Repository: Error reading profile image for user {userId}: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
         /// Reset user password using reset token
         /// </summary>
-        /// <param name="request">Password reset request</param>    
+        /// <param name="request">Password reset request</param>
         /// <returns>Password reset response</returns>
         public async Task<Model.User.ResetPasswordResponse> ResetPassword(Model.User.ResetPasswordRequest request)
         {

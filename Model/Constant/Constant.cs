@@ -58,6 +58,8 @@ namespace Tenant.Query.Model.Constant
             public const string SP_USER_LOGOUT = "[dbo].[SP_USER_LOGOUT]";
             public const string SP_GET_USER_PROFILE = "[dbo].[SP_GET_USER_PROFILE]";
             public const string SP_UPDATE_USER_PROFILE = "[dbo].[SP_UPDATE_USER_PROFILE]";
+            public const string SP_UPDATE_USER_PROFILE_IMAGE = "[dbo].[SP_UPDATE_USER_PROFILE_IMAGE]";
+            public const string SP_GET_USER_PROFILE_IMAGE = "[dbo].[SP_GET_USER_PROFILE_IMAGE]";
             public const string SP_RESET_PASSWORD = "[dbo].[SP_RESET_PASSWORD]";
             public const string SP_GET_USER_CART = "[dbo].[SP_GET_USER_CART]";
             public const string SP_ADD_ITEM_TO_CART = "[dbo].[SP_ADD_ITEM_TO_CART]";
@@ -106,6 +108,10 @@ namespace Tenant.Query.Model.Constant
             public const string SP_GET_STATES = "[dbo].[SP_GET_STATES]";
             public const string SP_CALCULATE_SHIPPING_CHARGE = "[dbo].[SP_CALCULATE_SHIPPING_CHARGE]";
             public const string SP_CALCULATE_MIXED_SHIPPING = "[dbo].[SP_CALCULATE_MIXED_SHIPPING]";
+            public const string SP_GET_SHIPPING_RATES = "[dbo].[SP_GET_SHIPPING_RATES]";
+            public const string SP_UPSERT_SHIPPING_RATE = "[dbo].[SP_UPSERT_SHIPPING_RATE]";
+            public const string SP_DELETE_SHIPPING_RATE = "[dbo].[SP_DELETE_SHIPPING_RATE]";
+            public const string SP_SET_SHIPPING_RATE_ACTIVE = "[dbo].[SP_SET_SHIPPING_RATE_ACTIVE]";
             public const string SP_GET_USER_ADDRESSES = "[dbo].[SP_GET_USER_ADDRESSES]";
             public const string SP_GET_ADDRESS_BY_ID = "[dbo].[SP_GET_ADDRESS_BY_ID]";
             public const string SP_CREATE_USER_ADDRESS = "[dbo].[SP_CREATE_USER_ADDRESS]";

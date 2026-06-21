@@ -21,6 +21,7 @@ namespace Tenant.Query.Controllers.Address
     public class AddressController : ControllerBase
     {
         #region Initialize
+        private const string GenericErrorMessage = "An error occurred while processing your request.";
         private readonly AddressService _addressService;
         public ILogger Logger { get; set; }
         #endregion
@@ -69,10 +70,10 @@ namespace Tenant.Query.Controllers.Address
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error getting user addresses: {ex.Message}", ex);
+                Logger.LogError(ex, "Error getting addresses for user {UserId}", userId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -97,6 +98,9 @@ namespace Tenant.Query.Controllers.Address
                         Exception = "User ID is required"
                     });
                 }
+
+                var accessError = ValidateUserAccess(userId);
+                if (accessError != null) return accessError;
 
                 if (!ModelState.IsValid)
                 {
@@ -125,10 +129,10 @@ namespace Tenant.Query.Controllers.Address
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error creating address: {ex.Message}", ex);
+                Logger.LogError(ex, "Error creating address for user {UserId}", userId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -146,12 +150,7 @@ namespace Tenant.Query.Controllers.Address
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier) ?? User.FindFirst("UserId");
-                long? userId = null;
-                if (userIdClaim != null && long.TryParse(userIdClaim.Value, out long parsedUserId))
-                {
-                    userId = parsedUserId;
-                }
+                var userId = GetUserIdFromJwt();
 
                 var address = await _addressService.GetAddressById(addressId, userId);
 
@@ -169,10 +168,10 @@ namespace Tenant.Query.Controllers.Address
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error getting address by ID: {ex.Message}", ex);
+                Logger.LogError(ex, "Error getting address {AddressId}", addressId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -250,10 +249,10 @@ namespace Tenant.Query.Controllers.Address
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error updating address: {ex.Message}", ex);
+                Logger.LogError(ex, "Error updating address {AddressId}", addressId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -280,6 +279,9 @@ namespace Tenant.Query.Controllers.Address
                     });
                 }
 
+                var accessError = ValidateUserAccess(userId);
+                if (accessError != null) return accessError;
+
                 await _addressService.DeleteAddress(addressId, userId);
 
                 return Ok(new ApiResult
@@ -296,10 +298,10 @@ namespace Tenant.Query.Controllers.Address
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error deleting address: {ex.Message}", ex);
+                Logger.LogError(ex, "Error deleting address {AddressId}", addressId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -326,6 +328,9 @@ namespace Tenant.Query.Controllers.Address
                     });
                 }
 
+                var accessError = ValidateUserAccess(userId);
+                if (accessError != null) return accessError;
+
                 await _addressService.SetDefaultAddress(addressId, userId);
 
                 return Ok(new ApiResult
@@ -342,10 +347,10 @@ namespace Tenant.Query.Controllers.Address
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error setting default address: {ex.Message}", ex);
+                Logger.LogError(ex, "Error setting default address {AddressId}", addressId);
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -380,10 +385,10 @@ namespace Tenant.Query.Controllers.Address
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error validating address: {ex.Message}", ex);
+                Logger.LogError(ex, "Error validating address");
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
         }
@@ -434,12 +439,52 @@ namespace Tenant.Query.Controllers.Address
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Error admin getting all addresses: {ex.Message}", ex);
+                Logger.LogError(ex, "Error admin getting all addresses");
                 return StatusCode(StatusCodes.Status500InternalServerError, new ApiResult
                 {
-                    Exception = ex.Message
+                    Exception = GenericErrorMessage
                 });
             }
+        }
+
+        #endregion
+
+        #region Auth Helpers
+
+        /// <summary>
+        /// Best-effort current user id from JWT claims. Reads every claim-name variation
+        /// used across this codebase (the canonical names live in a compiled DLL). Returns
+        /// null when no readable id claim is present.
+        /// </summary>
+        private long? GetUserIdFromJwt()
+        {
+            var claim = User?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? User?.FindFirst("user_id")?.Value
+                ?? User?.FindFirst("userId")?.Value
+                ?? User?.FindFirst("UserId")?.Value
+                ?? User?.FindFirst("sub")?.Value;
+            return long.TryParse(claim, out var id) ? id : (long?)null;
+        }
+
+        /// <summary>
+        /// Enforces that a client-supplied userId matches the authenticated caller's JWT id.
+        /// Returns a 403 result to short-circuit on mismatch, or null when access is allowed.
+        /// Defensive: if the token carries no readable id claim, the request is allowed to
+        /// proceed (falls back to the supplied id) so authenticated calls never hard-fail on
+        /// claim-name uncertainty. Callers must already require [Authorize].
+        /// </summary>
+        private IActionResult ValidateUserAccess(long userId)
+        {
+            var tokenUserId = GetUserIdFromJwt();
+            if (tokenUserId.HasValue && tokenUserId.Value != userId)
+            {
+                Logger.LogWarning(
+                    "User access denied: token user {TokenUserId} attempted to act on user {RequestUserId}",
+                    tokenUserId.Value, userId);
+                return Forbid(); // 403 — caller does not own this user's data
+            }
+
+            return null;
         }
 
         #endregion
